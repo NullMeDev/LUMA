@@ -1,0 +1,26 @@
+name: SilverBullet Login Test
+url: https://httpbin.org/post
+method: POST
+timeout: 30
+cpm: 300
+useProxy: true
+
+request:
+  headers:
+    User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+    Content-Type: application/x-www-form-urlencoded
+    Accept: application/json
+  data:
+    username: <USER>
+    password: <PASS>
+    remember: "1"
+
+response:
+  success:
+    - "success"
+    - "welcome"
+    - "dashboard"
+  failure:
+    - "error"
+    - "invalid"
+    - "forbidden"

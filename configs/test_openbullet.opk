@@ -1,0 +1,32 @@
+{
+  "name": "OpenBullet Login Test",
+  "script": [
+    {
+      "type": "REQUEST",
+      "url": "https://httpbin.org/post",
+      "method": "POST",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json"
+      },
+      "postData": "username=<USER>&password=<PASS>&remember=1"
+    },
+    {
+      "type": "KEYCHECK",
+      "condition": "success",
+      "keyCheckType": "SUCCESS"
+    },
+    {
+      "type": "KEYCHECK", 
+      "condition": "error",
+      "keyCheckType": "FAILURE"
+    }
+  ],
+  "timeout": 30,
+  "followRedirects": true,
+  "cpm": 300,
+  "delay": 100,
+  "retries": 3,
+  "useProxy": true
+}

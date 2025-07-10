@@ -1,0 +1,10 @@
+admin:admin123
+test@example.com:password123
+user1:mypassword
+demo@test.com:demopass
+john.doe@gmail.com:secretpassword
+testuser:testpass
+alice@yahoo.com:password456
+bob@hotmail.com:123456789
+charlie:qwerty123
+sample@email.com:samplepass
