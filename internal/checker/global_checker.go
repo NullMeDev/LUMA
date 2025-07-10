@@ -390,7 +390,7 @@ func (gc *GlobalChecker) checkComboAgainstConfig(combo types.Combo, config types
 		return types.CheckResult{
 			Combo:     combo,
 			Config:    config.Name,
-			Status:    "error",
+			Status:    types.BotStatusError,
 			Error:     err.Error(),
 			Timestamp: time.Now(),
 			Latency:   int(time.Since(start).Milliseconds()),
@@ -400,7 +400,7 @@ func (gc *GlobalChecker) checkComboAgainstConfig(combo types.Combo, config types
 	// Analyze response
 	status := gc.analyzeResponse(string(body), resp.StatusCode, config)
 	
-	if status == "valid" {
+	if status == types.BotStatusSuccess {
 		gc.Log("success", fmt.Sprintf("Worker %d: VALID combo found - %s against %s", 
 			workerID, combo.Username, config.Name))
 	}
@@ -408,7 +408,7 @@ func (gc *GlobalChecker) checkComboAgainstConfig(combo types.Combo, config types
 	return types.CheckResult{
 		Combo:     combo,
 		Config:    config.Name,
-		Status:    status,
+			Status:    status,
 		Response:  string(body),
 		Proxy:     proxy,
 		Timestamp: time.Now(),
@@ -602,36 +602,36 @@ func (gc *GlobalChecker) buildFormData(data map[string]interface{}, combo types.
 }
 
 // Enhanced response analysis with regex support
-func (gc *GlobalChecker) analyzeResponse(body string, statusCode int, config types.Config) string {
+func (gc *GlobalChecker) analyzeResponse(body string, statusCode int, config types.Config) types.BotStatus {
 	// Check status codes first
 	for _, successCode := range config.SuccessStatus {
 		if statusCode == successCode {
-			return "valid"
+			return types.BotStatusSuccess
 		}
 	}
 	
 	for _, failureCode := range config.FailureStatus {
 		if statusCode == failureCode {
-			return "invalid"
+			return types.BotStatusFail
 		}
 	}
 
 	// Check success strings (case-insensitive)
 	for _, successStr := range config.SuccessStrings {
-		if strings.Contains(strings.ToLower(body), strings.ToLower(successStr)) {
-			return "valid"
+		if strings.Contains(body, successStr) {
+			return types.BotStatusSuccess
 		}
 	}
 
 	// Check failure strings (case-insensitive)
 	for _, failureStr := range config.FailureStrings {
-		if strings.Contains(strings.ToLower(body), strings.ToLower(failureStr)) {
-			return "invalid"
+		if strings.Contains(body, failureStr) {
+			return types.BotStatusFail
 		}
 	}
 
 	// Default to invalid if no specific conditions match
-	return "invalid"
+	return types.BotStatusFail
 }
 
 // Enhanced proxy rotation with health checking

@@ -75,17 +75,34 @@ type Config struct {
 	RawConfig map[string]interface{} `json:"raw_config"`
 }
 
+// BotStatus represents the status of a bot/worker
+type BotStatus string
+
+const (
+	BotStatusNone    BotStatus = "NONE"
+	BotStatusError   BotStatus = "ERROR"
+	BotStatusSuccess BotStatus = "SUCCESS"
+	BotStatusFail    BotStatus = "FAIL"
+	BotStatusBan     BotStatus = "BAN"
+	BotStatusRetry   BotStatus = "RETRY"
+	BotStatusCustom  BotStatus = "CUSTOM"
+)
+
 // CheckResult represents the result of a combo check
 type CheckResult struct {
 	Combo     Combo     `json:"combo"`
 	Config    string    `json:"config"`
-	Status    string    `json:"status"` // "valid", "invalid", "error", "retry"
+	Status    BotStatus `json:"status"` // Enhanced bot status
 	Response  string    `json:"response"`
 	Proxy     *Proxy    `json:"proxy,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 	CPM       float64   `json:"cpm"`
 	Latency   int       `json:"latency"`
 	Error     string    `json:"error,omitempty"`
+	
+	// Enhanced data from parsing
+	CapturedData map[string]interface{} `json:"captured_data,omitempty"`
+	Variables    map[string]interface{} `json:"variables,omitempty"`
 }
 
 // CheckerStats represents statistics for the checker

@@ -361,36 +361,36 @@ func (c *Checker) replaceVariables(text string, combo types.Combo) string {
 }
 
 // analyzeResponse analyzes the response to determine success/failure
-func (c *Checker) analyzeResponse(body string, statusCode int, config types.Config) string {
+func (c *Checker) analyzeResponse(body string, statusCode int, config types.Config) types.BotStatus {
 	// Check status codes first
 	for _, successCode := range config.SuccessStatus {
 		if statusCode == successCode {
-			return "valid"
+			return types.BotStatusSuccess
 		}
 	}
 	
 	for _, failureCode := range config.FailureStatus {
 		if statusCode == failureCode {
-			return "invalid"
+			return types.BotStatusFail
 		}
 	}
 
 	// Check success strings
 	for _, successStr := range config.SuccessStrings {
 		if strings.Contains(body, successStr) {
-			return "valid"
+			return types.BotStatusSuccess
 		}
 	}
 
 	// Check failure strings
 	for _, failureStr := range config.FailureStrings {
 		if strings.Contains(body, failureStr) {
-			return "invalid"
+			return types.BotStatusFail
 		}
 	}
 
 	// Default to invalid if no specific conditions match
-	return "invalid"
+	return types.BotStatusFail
 }
 
 // processResults processes results from workers
@@ -399,7 +399,7 @@ func (c *Checker) processResults() {
 		c.updateStats(result.Result)
 		
 		// Save result if needed
-		if !c.Config.SaveValidOnly || result.Result.Status == "valid" {
+		if !c.Config.SaveValidOnly || result.Result.Status == types.BotStatusSuccess {
 			c.saveResult(result.Result)
 		}
 	}
@@ -411,11 +411,11 @@ func (c *Checker) updateStats(result types.CheckResult) {
 	defer c.statsMutex.Unlock()
 
 	switch result.Status {
-	case "valid":
+	case types.BotStatusSuccess:
 		c.Stats.ValidCombos++
-	case "invalid":
+	case types.BotStatusFail:
 		c.Stats.InvalidCombos++
-	case "error":
+	case types.BotStatusError:
 		c.Stats.ErrorCombos++
 	}
 
@@ -430,7 +430,7 @@ func (c *Checker) updateStats(result types.CheckResult) {
 // saveResult saves a result to file
 func (c *Checker) saveResult(result types.CheckResult) {
 	if err := c.exporter.ExportResult(result); err != nil {
-		log.Printf("Error exporting result: %v", err)
+	log.Printf("[ERROR] Failed to export result: %v", err)
 	}
 }
 
