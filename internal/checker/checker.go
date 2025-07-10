@@ -47,23 +47,32 @@ type Checker struct {
 	
 	// Result exporter
 	exporter   *ResultExporter
+	
+	// Enhanced parsing and variable systems
+	workflowEngine *WorkflowEngine
+	varManipulator *VariableManipulator
 }
 
 // NewChecker creates a new checker instance
 func NewChecker(config *types.CheckerConfig) *Checker {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	workflowEngine := NewWorkflowEngine()
+	varManipulator := NewVariableManipulator(workflowEngine.variables)
+	
 	return &Checker{
-		Config:     config,
-		Stats:      &types.CheckerStats{},
-		Proxies:    make([]types.Proxy, 0),
-		Configs:    make([]types.Config, 0),
-		Combos:     make([]types.Combo, 0),
-		taskChan:   make(chan types.WorkerTask, config.MaxWorkers*2),
-		resultChan: make(chan types.WorkerResult, config.MaxWorkers*2),
-		ctx:        ctx,
-		cancel:     cancel,
-		exporter:   NewResultExporter(config.OutputDirectory, config.OutputFormat),
+		Config:         config,
+		Stats:          &types.CheckerStats{},
+		Proxies:        make([]types.Proxy, 0),
+		Configs:        make([]types.Config, 0),
+		Combos:         make([]types.Combo, 0),
+		taskChan:       make(chan types.WorkerTask, config.MaxWorkers*2),
+		resultChan:     make(chan types.WorkerResult, config.MaxWorkers*2),
+		ctx:            ctx,
+		cancel:         cancel,
+		exporter:       NewResultExporter(config.OutputDirectory, config.OutputFormat),
+		workflowEngine: workflowEngine,
+		varManipulator: varManipulator,
 	}
 }
 
@@ -349,15 +358,18 @@ func (c *Checker) buildFormData(data map[string]interface{}, combo types.Combo) 
 	return strings.Join(formData, "&")
 }
 
-// replaceVariables replaces variables in strings with combo values
+// replaceVariables replaces variables in strings with combo values and dynamic variables
 func (c *Checker) replaceVariables(text string, combo types.Combo) string {
-	text = strings.ReplaceAll(text, "<USER>", combo.Username)
-	text = strings.ReplaceAll(text, "<PASS>", combo.Password)
-	text = strings.ReplaceAll(text, "<EMAIL>", combo.Email)
-	text = strings.ReplaceAll(text, "<username>", combo.Username)
-	text = strings.ReplaceAll(text, "<password>", combo.Password)
-	text = strings.ReplaceAll(text, "<email>", combo.Email)
-	return text
+	// Set combo variables in the variable manipulator
+	c.varManipulator.SetVariable("USER", combo.Username, false)
+	c.varManipulator.SetVariable("PASS", combo.Password, false)
+	c.varManipulator.SetVariable("EMAIL", combo.Email, false)
+	c.varManipulator.SetVariable("username", combo.Username, false)
+	c.varManipulator.SetVariable("password", combo.Password, false)
+	c.varManipulator.SetVariable("email", combo.Email, false)
+	
+	// Use the variable manipulator for enhanced variable replacement
+	return c.varManipulator.ReplaceVariables(text)
 }
 
 // analyzeResponse analyzes the response to determine success/failure
