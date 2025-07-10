@@ -24,16 +24,68 @@ const (
 	ProxyTypeSOCKS5 ProxyType = "socks5"
 )
 
-// Proxy represents a proxy server
+// ProxyQuality represents the quality rating of a proxy
+type ProxyQuality string
+
+const (
+	ProxyQualityExcellent ProxyQuality = "excellent" // < 100ms, 99%+ uptime
+	ProxyQualityGood      ProxyQuality = "good"      // < 300ms, 95%+ uptime
+	ProxyQualityAverage   ProxyQuality = "average"   // < 1000ms, 90%+ uptime
+	ProxyQualityPoor      ProxyQuality = "poor"      // > 1000ms, < 90% uptime
+	ProxyQualityDead      ProxyQuality = "dead"      // Not responding
+)
+
+// ProxyLocation represents geographical information about a proxy
+type ProxyLocation struct {
+	Country     string  `json:"country"`
+	CountryCode string  `json:"country_code"`
+	City        string  `json:"city"`
+	Region      string  `json:"region"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	Timezone    string  `json:"timezone"`
+	ISP         string  `json:"isp"`
+}
+
+// ProxyMetrics represents performance and reliability metrics
+type ProxyMetrics struct {
+	TotalRequests    int     `json:"total_requests"`
+	SuccessfulReqs   int     `json:"successful_requests"`
+	FailedRequests   int     `json:"failed_requests"`
+	AverageLatency   int     `json:"average_latency"`   // in milliseconds
+	MinLatency       int     `json:"min_latency"`       // in milliseconds
+	MaxLatency       int     `json:"max_latency"`       // in milliseconds
+	Uptime           float64 `json:"uptime"`            // percentage
+	LastSuccessTime  time.Time `json:"last_success_time"`
+	ConsecutiveFails int     `json:"consecutive_fails"`
+	BanDetected      bool    `json:"ban_detected"`
+}
+
+// Proxy represents a proxy server with advanced features
 type Proxy struct {
 	Host     string    `json:"host"`
 	Port     int       `json:"port"`
 	Type     ProxyType `json:"type"`
 	Username string    `json:"username,omitempty"`
 	Password string    `json:"password,omitempty"`
-	Working  bool      `json:"working"`
-	Latency  int       `json:"latency"` // in milliseconds
-	LastTest time.Time `json:"last_test"`
+	
+	// Status and performance
+	Working     bool         `json:"working"`
+	Latency     int          `json:"latency"` // current latency in milliseconds
+	LastTest    time.Time    `json:"last_test"`
+	Quality     ProxyQuality `json:"quality"`
+	Score       float64      `json:"score"` // 0-100 composite score
+	
+	// Geographic and network info
+	Location *ProxyLocation `json:"location,omitempty"`
+	Metrics  *ProxyMetrics  `json:"metrics,omitempty"`
+	
+	// Advanced features
+	SupportsHTTPS bool      `json:"supports_https"`
+	SupportsUDP   bool      `json:"supports_udp"`
+	Anonymity     string    `json:"anonymity"` // "transparent", "anonymous", "elite"
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Combo represents a username:password combination

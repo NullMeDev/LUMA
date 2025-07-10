@@ -48,9 +48,13 @@ type Checker struct {
 	// Result exporter
 	exporter   *ResultExporter
 	
-	// Enhanced parsing and variable systems
+// Enhanced parsing and variable systems
 	workflowEngine *WorkflowEngine
 	varManipulator *VariableManipulator
+
+	// Advanced proxy management systems
+	proxyManager    *AdvancedProxyManager
+	healthMonitor   *ProxyHealthMonitor
 }
 
 // NewChecker creates a new checker instance
@@ -59,6 +63,10 @@ func NewChecker(config *types.CheckerConfig) *Checker {
 	
 	workflowEngine := NewWorkflowEngine()
 	varManipulator := NewVariableManipulator(workflowEngine.variables)
+	
+	// Initialize advanced proxy management
+	proxyManager := NewAdvancedProxyManager(StrategyBestScore)
+	healthMonitor := NewProxyHealthMonitor(proxyManager)
 	
 	return &Checker{
 		Config:         config,
@@ -73,6 +81,8 @@ func NewChecker(config *types.CheckerConfig) *Checker {
 		exporter:       NewResultExporter(config.OutputDirectory, config.OutputFormat),
 		workflowEngine: workflowEngine,
 		varManipulator: varManipulator,
+		proxyManager:   proxyManager,
+		healthMonitor:  healthMonitor,
 	}
 }
 
@@ -124,6 +134,12 @@ func (c *Checker) LoadProxies(proxyPath string) error {
 		if err != nil {
 			return err
 		}
+		// Add scraped proxies to the advanced proxy manager
+		for _, proxy := range proxies {
+			if err := c.proxyManager.AddProxy(proxy); err != nil {
+				log.Printf("[WARN] Failed to add scraped proxy %s:%d: %v", proxy.Host, proxy.Port, err)
+			}
+		}
 		c.Proxies = proxies
 	} else if proxyPath != "" {
 		file, err := os.Open(proxyPath)
@@ -141,7 +157,12 @@ func (c *Checker) LoadProxies(proxyPath string) error {
 
 			proxy := c.parseProxy(line)
 			if proxy != nil {
-				c.Proxies = append(c.Proxies, *proxy)
+				// Add to advanced proxy manager
+				if err := c.proxyManager.AddProxy(*proxy); err != nil {
+					log.Printf("[WARN] Failed to add proxy %s:%d: %v", proxy.Host, proxy.Port, err)
+				} else {
+					c.Proxies = append(c.Proxies, *proxy)
+				}
 			}
 		}
 	}
@@ -153,6 +174,9 @@ func (c *Checker) LoadProxies(proxyPath string) error {
 // Start starts the checking process
 func (c *Checker) Start() error {
 	c.Stats.StartTime = time.Now()
+	
+	// Start health monitor for proxy management
+	c.healthMonitor.Start()
 	
 	// Start workers
 	for i := 0; i < c.Config.MaxWorkers; i++ {
@@ -172,6 +196,7 @@ func (c *Checker) Start() error {
 // Stop stops the checking process
 func (c *Checker) Stop() {
 	c.cancel()
+	c.healthMonitor.Stop()
 	close(c.taskChan)
 	c.wg.Wait()
 	close(c.resultChan)
@@ -446,23 +471,30 @@ func (c *Checker) saveResult(result types.CheckResult) {
 	}
 }
 
-// getNextProxy returns the next proxy in rotation
+// getNextProxy returns the next proxy using the advanced proxy manager
 func (c *Checker) getNextProxy() *types.Proxy {
-	c.proxyMutex.Lock()
-	defer c.proxyMutex.Unlock()
-
-	if len(c.Proxies) == 0 {
-		return nil
+	// Use the advanced proxy manager to get the best proxy
+	proxy, err := c.proxyManager.GetBestProxy()
+	if err != nil {
+		// Fallback to simple rotation if advanced manager fails
+		c.proxyMutex.Lock()
+		defer c.proxyMutex.Unlock()
+		
+		if len(c.Proxies) == 0 {
+			return nil
+		}
+		
+		if c.Config.ProxyRotation {
+			proxy := &c.Proxies[c.proxyIndex]
+			c.proxyIndex = (c.proxyIndex + 1) % len(c.Proxies)
+			return proxy
+		}
+		
+		// Random proxy selection
+		return &c.Proxies[rand.Intn(len(c.Proxies))]
 	}
-
-	if c.Config.ProxyRotation {
-		proxy := &c.Proxies[c.proxyIndex]
-		c.proxyIndex = (c.proxyIndex + 1) % len(c.Proxies)
-		return proxy
-	}
-
-	// Random proxy selection
-	return &c.Proxies[rand.Intn(len(c.Proxies))]
+	
+	return proxy
 }
 
 // parseCombo parses a combo line into a Combo struct
