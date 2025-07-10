@@ -1,6 +1,6 @@
-# Universal Checker
+# LUMA - Universal Checker
 
-A high-performance universal account checker that supports multiple configuration formats and automatic proxy management.
+A next-generation high-performance universal account checker that supports multiple configuration formats, advanced parsing engines, and intelligent proxy management. LUMA combines the best features of OpenBullet, SilverBullet, and CyberBullet while introducing innovative enhancements.
 
 ## Features
 
@@ -8,7 +8,21 @@ A high-performance universal account checker that supports multiple configuratio
 - OpenBullet (.opk) configurations
 - SilverBullet (.svb) configurations  
 - Loli (.loli) configurations
+- OpenBulletPro (.anom) configurations
 - Automatic format detection
+
+🧠 **Advanced Parsing Engine**
+- JSON field extraction and manipulation
+- CSS selector-based HTML parsing
+- REGEX pattern matching with capture groups
+- Left-Right delimiter parsing
+- Modular parsing architecture
+
+🔧 **Enhanced Variable System**
+- Dynamic variable types (Single, List, Dictionary)
+- Runtime variable management
+- Type-safe operations
+- Advanced data transformation
 
 🌐 **Proxy Management**
 - Automatic proxy scraping (SOCKS4, SOCKS5, HTTP, HTTPS)
