@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"universal-checker/internal/config"
+	"universal-checker/internal/logger"
 	"universal-checker/internal/proxy"
 	"universal-checker/pkg/types"
 )
@@ -55,6 +56,9 @@ type Checker struct {
 	// Advanced proxy management systems
 	proxyManager    *AdvancedProxyManager
 	healthMonitor   *ProxyHealthMonitor
+	
+	// Logging and reporting
+	logger          *logger.StructuredLogger
 }
 
 // NewChecker creates a new checker instance
@@ -67,6 +71,21 @@ func NewChecker(config *types.CheckerConfig) *Checker {
 	// Initialize advanced proxy management
 	proxyManager := NewAdvancedProxyManager(StrategyBestScore)
 	healthMonitor := NewProxyHealthMonitor(proxyManager)
+	
+	// Initialize structured logger
+	loggerConfig := logger.LoggerConfig{
+		Level:      logger.INFO,
+		JSONFormat: true,
+		OutputFile: "logs/checker.log",
+		BufferSize: 1000,
+		Component:  "checker",
+	}
+	structuredLogger, err := logger.NewStructuredLogger(loggerConfig)
+	if err != nil {
+		// Fall back to stdout if file logging fails
+		loggerConfig.OutputFile = ""
+		structuredLogger, _ = logger.NewStructuredLogger(loggerConfig)
+	}
 	
 	return &Checker{
 		Config:         config,
@@ -83,6 +102,7 @@ func NewChecker(config *types.CheckerConfig) *Checker {
 		varManipulator: varManipulator,
 		proxyManager:   proxyManager,
 		healthMonitor:  healthMonitor,
+		logger:         structuredLogger,
 	}
 }
 
@@ -175,6 +195,13 @@ func (c *Checker) LoadProxies(proxyPath string) error {
 func (c *Checker) Start() error {
 	c.Stats.StartTime = time.Now()
 	
+	c.logger.Info("Starting checker", map[string]interface{}{
+		"max_workers": c.Config.MaxWorkers,
+		"total_combos": len(c.Combos),
+		"total_configs": len(c.Configs),
+		"total_proxies": len(c.Proxies),
+	})
+	
 	// Start health monitor for proxy management
 	c.healthMonitor.Start()
 	
@@ -190,16 +217,32 @@ func (c *Checker) Start() error {
 	// Generate tasks
 	go c.generateTasks()
 
+	c.logger.Info("Checker started successfully")
 	return nil
 }
 
 // Stop stops the checking process
 func (c *Checker) Stop() {
+	c.logger.Info("Stopping checker")
 	c.cancel()
 	c.healthMonitor.Stop()
 	close(c.taskChan)
 	c.wg.Wait()
 	close(c.resultChan)
+	
+	// Log final statistics
+	stats := c.GetStats()
+	c.logger.Info("Checker stopped", map[string]interface{}{
+		"total_processed": stats.ValidCombos + stats.InvalidCombos + stats.ErrorCombos,
+		"valid_combos": stats.ValidCombos,
+		"invalid_combos": stats.InvalidCombos,
+		"error_combos": stats.ErrorCombos,
+		"current_cpm": stats.CurrentCPM,
+		"elapsed_time": stats.ElapsedTime,
+	})
+	
+	// Close logger
+	c.logger.Close()
 }
 
 // worker is the main worker function that processes tasks
@@ -434,6 +477,19 @@ func (c *Checker) analyzeResponse(body string, statusCode int, config types.Conf
 func (c *Checker) processResults() {
 	for result := range c.resultChan {
 		c.updateStats(result.Result)
+		
+		// Log successful results
+		if result.Result.Status == types.BotStatusSuccess {
+			c.logger.LogCheckerEvent("valid_combo_found", result.Result, nil)
+		}
+		
+		// Log errors
+		if result.Error != nil {
+			c.logger.Error("Worker error", result.Error, map[string]interface{}{
+				"combo": result.Result.Combo.Username,
+				"config": result.Result.Config,
+			})
+		}
 		
 		// Save result if needed
 		if !c.Config.SaveValidOnly || result.Result.Status == types.BotStatusSuccess {
