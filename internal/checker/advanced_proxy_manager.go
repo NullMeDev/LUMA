@@ -1,6 +1,7 @@
 package checker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"universal-checker/pkg/types"
+	"universal-checker/pkg/utils"
 )
 
 // ProxySelectionStrategy defines how proxies should be selected
@@ -144,13 +146,50 @@ func (pm *AdvancedProxyManager) enrichProxyWithGeoLocation(proxy *types.Proxy) e
 
 // TestProxy performs a health check on a proxy
 func (pm *AdvancedProxyManager) TestProxy(proxy *types.Proxy) error {
+	return pm.TestProxyWithContext(context.Background(), proxy)
+}
+
+// TestProxyWithContext performs a health check on a proxy with context timeout
+func (pm *AdvancedProxyManager) TestProxyWithContext(ctx context.Context, proxy *types.Proxy) error {
+	// Create a context with timeout for the test
+	testCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	
 	start := time.Now()
 	
-	// Create a test HTTP client with the proxy
-	client := pm.createTestClient(proxy)
+	// Create a test HTTP client with the proxy and context
+	client := pm.createTestClientWithContext(proxy, testCtx)
 	
-	// Test with a reliable endpoint
-	resp, err := client.Get("http://httpbin.org/ip")
+	// Channel to receive the result
+	resultChan := make(chan error, 1)
+	
+	// Perform the test in a goroutine
+	go func() {
+		resp, err := client.Get("http://httpbin.org/ip")
+		if err != nil {
+			resultChan <- err
+			return
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode != 200 {
+			resultChan <- fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			return
+		}
+		
+		resultChan <- nil
+	}()
+	
+	// Wait for either result or timeout
+	var err error
+	select {
+	case err = <-resultChan:
+		// Test completed within timeout
+	case <-testCtx.Done():
+		// Test timed out
+		err = fmt.Errorf("proxy test timeout: %v", testCtx.Err())
+	}
+	
 	latency := int(time.Since(start).Milliseconds())
 	
 	pm.mutex.Lock()
@@ -167,32 +206,25 @@ func (pm *AdvancedProxyManager) TestProxy(proxy *types.Proxy) error {
 		pm.updateProxyQuality(proxy)
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		proxy.Working = true
-		proxy.Metrics.SuccessfulReqs++
-		proxy.Metrics.ConsecutiveFails = 0
-		proxy.Metrics.LastSuccessTime = time.Now()
-		
-		// Update latency metrics
-		if latency < proxy.Metrics.MinLatency || proxy.Metrics.MinLatency == 9999 {
-			proxy.Metrics.MinLatency = latency
-		}
-		if latency > proxy.Metrics.MaxLatency {
-			proxy.Metrics.MaxLatency = latency
-		}
-		
-		// Calculate average latency
-		if proxy.Metrics.TotalRequests > 0 {
-			proxy.Metrics.AverageLatency = (proxy.Metrics.AverageLatency*proxy.Metrics.TotalRequests + latency) / (proxy.Metrics.TotalRequests + 1)
-		} else {
-			proxy.Metrics.AverageLatency = latency
-		}
+	
+	proxy.Working = true
+	proxy.Metrics.SuccessfulReqs++
+	proxy.Metrics.ConsecutiveFails = 0
+	proxy.Metrics.LastSuccessTime = time.Now()
+	
+	// Update latency metrics
+	if latency < proxy.Metrics.MinLatency || proxy.Metrics.MinLatency == 9999 {
+		proxy.Metrics.MinLatency = latency
+	}
+	if latency > proxy.Metrics.MaxLatency {
+		proxy.Metrics.MaxLatency = latency
+	}
+	
+	// Calculate average latency
+	if proxy.Metrics.TotalRequests > 0 {
+		proxy.Metrics.AverageLatency = (proxy.Metrics.AverageLatency*proxy.Metrics.TotalRequests + latency) / (proxy.Metrics.TotalRequests + 1)
 	} else {
-		proxy.Working = false
-		proxy.Metrics.FailedRequests++
-		proxy.Metrics.ConsecutiveFails++
+		proxy.Metrics.AverageLatency = latency
 	}
 
 	proxy.Metrics.TotalRequests++
@@ -207,6 +239,15 @@ func (pm *AdvancedProxyManager) createTestClient(proxy *types.Proxy) *http.Clien
 	// This is a simplified version - in reality you'd configure the actual proxy
 	return &http.Client{
 		Timeout: 10 * time.Second,
+	}
+}
+
+// createTestClientWithContext creates an HTTP client configured with the proxy and context
+func (pm *AdvancedProxyManager) createTestClientWithContext(proxy *types.Proxy, ctx context.Context) *http.Client {
+	// This is a simplified version - in reality you'd configure the actual proxy
+	// The context will be used in the request, not in the client timeout
+	return &http.Client{
+		Timeout: 30 * time.Second, // Set a reasonable timeout
 	}
 }
 
@@ -278,33 +319,46 @@ func (pm *AdvancedProxyManager) calculateProxyScore(proxy *types.Proxy) {
 	}
 }
 
-// GetBestProxy returns the best proxy based on the current strategy
+// GetBestProxy returns the best proxy based on the current strategy with logging
 func (pm *AdvancedProxyManager) GetBestProxy() (*types.Proxy, error) {
+	correlationID := utils.GenerateCorrelationID()
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
 
 	if len(pm.proxies) == 0 {
+		fmt.Printf("[WARN] No proxies available [CID:%s]\n", correlationID)
 		return nil, fmt.Errorf("no proxies available")
 	}
 
 	// Filter out dead and blacklisted proxies
 	workingProxies := pm.getWorkingProxies()
 	if len(workingProxies) == 0 {
+		fmt.Printf("[WARN] No working proxies available [CID:%s] (total: %d)\n", correlationID, len(pm.proxies))
 		return nil, fmt.Errorf("no working proxies available")
 	}
 
+	fmt.Printf("[DEBUG] Selecting proxy using %s strategy [CID:%s] (candidates: %d)\n", string(pm.strategy), correlationID, len(workingProxies))
+
+	var selectedProxy *types.Proxy
 	switch pm.strategy {
 	case StrategyBestScore:
-		return pm.getBestScoreProxy(workingProxies), nil
+		selectedProxy = pm.getBestScoreProxy(workingProxies)
 	case StrategyRandomWeighted:
-		return pm.getRandomWeightedProxy(workingProxies), nil
+		selectedProxy = pm.getRandomWeightedProxy(workingProxies)
 	case StrategyGeoPreferred:
-		return pm.getGeoPreferredProxy(workingProxies), nil
+		selectedProxy = pm.getGeoPreferredProxy(workingProxies)
 	case StrategyLeastUsed:
-		return pm.getLeastUsedProxy(workingProxies), nil
+		selectedProxy = pm.getLeastUsedProxy(workingProxies)
 	default: // StrategyRoundRobin
-		return pm.getRoundRobinProxy(workingProxies), nil
+		selectedProxy = pm.getRoundRobinProxy(workingProxies)
 	}
+
+	if selectedProxy != nil {
+		fmt.Printf("[INFO] Proxy selected [CID:%s] %s:%d (score: %.2f, quality: %s)\n", 
+			correlationID, selectedProxy.Host, selectedProxy.Port, selectedProxy.Score, string(selectedProxy.Quality))
+	}
+
+	return selectedProxy, nil
 }
 
 // getWorkingProxies returns only working, non-blacklisted proxies

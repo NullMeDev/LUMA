@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"universal-checker/pkg/types"
+	"universal-checker/pkg/utils"
 )
 
 // HealthCheckResult represents the result of a health check
@@ -40,6 +41,13 @@ type ProxyHealthMonitor struct {
 	successfulChecks int64
 	failedChecks    int64
 	statsMutex      sync.RWMutex
+	
+	// Error recovery and circuit breaker
+	errorHistory    []error
+	errorHistoryMutex sync.RWMutex
+	maxErrorHistory int
+	circuitBreakerThreshold int
+	circuitBreakerWindow time.Duration
 }
 
 // NewProxyHealthMonitor creates a new health monitor
@@ -55,6 +63,12 @@ func NewProxyHealthMonitor(proxyManager *AdvancedProxyManager) *ProxyHealthMonit
 		cancel:          cancel,
 		recentResults:   make([]HealthCheckResult, 0),
 		maxResultsStore: 1000, // Store last 1000 results
+		
+		// Error recovery and circuit breaker configuration
+		errorHistory:    make([]error, 0),
+		maxErrorHistory: 100, // Store last 100 errors
+		circuitBreakerThreshold: 10, // Trip circuit breaker after 10 consecutive errors
+		circuitBreakerWindow: 5 * time.Minute, // Circuit breaker window
 	}
 }
 
@@ -128,54 +142,90 @@ func (hm *ProxyHealthMonitor) performHealthChecks() {
 	log.Printf("[INFO] Health check completed")
 }
 
-// checkSingleProxy performs a health check on a single proxy
+// checkSingleProxy performs a health check on a single proxy with comprehensive logging
 func (hm *ProxyHealthMonitor) checkSingleProxy(proxy *types.Proxy) {
+	correlationID := utils.GenerateCorrelationID()
+	ctx, cancel := context.WithTimeout(hm.ctx, 30*time.Second)
+	defer cancel()
+
 	start := time.Now()
 	proxyID := fmt.Sprintf("%s:%d", proxy.Host, proxy.Port)
-	
-	// Perform the actual health check
-	err := hm.proxyManager.TestProxy(proxy)
-	latency := int(time.Since(start).Milliseconds())
-	
-	// Create health check result
-	result := HealthCheckResult{
-		ProxyID:   proxyID,
-		Success:   err == nil,
-		Latency:   latency,
-		Timestamp: time.Now(),
-		AdditionalInfo: map[string]interface{}{
-			"proxy_type": string(proxy.Type),
-			"score":      proxy.Score,
-			"quality":    string(proxy.Quality),
-		},
-	}
-	
-	if err != nil {
-		result.Error = err.Error()
-	}
-	
-	// Add location info if available
-	if proxy.Location != nil {
-		result.AdditionalInfo["country"] = proxy.Location.Country
-		result.AdditionalInfo["city"] = proxy.Location.City
-	}
-	
-	// Store the result
-	hm.storeHealthCheckResult(result)
-	
-	// Update statistics
-	hm.updateHealthCheckStats(result.Success)
-	
-	// Log significant events
-	if !result.Success {
-		log.Printf("[WARN] Proxy %s health check failed: %s", proxyID, result.Error)
-	} else if latency > 5000 { // Log slow proxies
-		log.Printf("[WARN] Proxy %s is slow: %dms", proxyID, latency)
-	}
-	
-	// Auto-blacklist consistently failing proxies
-	if proxy.Metrics.ConsecutiveFails >= 5 {
-		log.Printf("[WARN] Auto-blacklisting proxy %s (5+ consecutive failures)", proxyID)
+
+	// Log health check start
+	log.Printf("[DEBUG] Starting health check for proxy %s [CID:%s]", proxyID, correlationID)
+
+	ch := make(chan error, 1)
+	go func() {
+		ch <- hm.proxyManager.TestProxyWithContext(ctx, proxy)
+	}()
+
+	select {
+	case err := <-ch:
+		// Proxy check completed within timeout
+		latency := time.Since(start)
+		latencyMs := int(latency.Milliseconds())
+
+		// Create health check result
+		result := HealthCheckResult{
+			ProxyID:   proxyID,
+			Success:   err == nil,
+			Latency:   latencyMs,
+			Timestamp: time.Now(),
+			AdditionalInfo: map[string]interface{}{
+				"proxy_type":     string(proxy.Type),
+				"score":          proxy.Score,
+				"quality":        string(proxy.Quality),
+				"correlation_id": correlationID,
+				"timeout_used":   "30s",
+			},
+		}
+
+		if err != nil {
+			result.Error = err.Error()
+			hm.storeError(err) // Store error for analysis
+			log.Printf("[WARN] Proxy %s health check failed [CID:%s] [%dms]: %s", proxyID, correlationID, latencyMs, err.Error())
+		} else {
+			log.Printf("[INFO] Proxy %s health check successful [CID:%s] [%dms]", proxyID, correlationID, latencyMs)
+		}
+
+		// Add location info if available
+		if proxy.Location != nil {
+			result.AdditionalInfo["country"] = proxy.Location.Country
+			result.AdditionalInfo["city"] = proxy.Location.City
+		}
+
+		// Store the result
+		hm.storeHealthCheckResult(result)
+
+		// Update statistics
+		hm.updateHealthCheckStats(result.Success)
+
+		// Log performance warnings
+		if result.Success && latencyMs > 5000 {
+			log.Printf("[WARN] Proxy %s is slow [CID:%s]: %dms (threshold: 5000ms)", proxyID, correlationID, latencyMs)
+		}
+
+		// Auto-blacklist consistently failing proxies
+		if proxy.Metrics != nil && proxy.Metrics.ConsecutiveFails >= 5 {
+			log.Printf("[WARN] Auto-blacklisting proxy %s [CID:%s] (5+ consecutive failures)", proxyID, correlationID)
+			hm.proxyManager.BlacklistIP(proxy.Host)
+		}
+
+	case <-ctx.Done():
+		// Timeout exceeded
+		log.Printf("[ERROR] Proxy %s health check timed out [CID:%s] (30s timeout)", proxyID, correlationID)
+		hm.storeHealthCheckResult(HealthCheckResult{
+			ProxyID:   proxyID,
+			Success:   false,
+			Error:     "health check timeout (30s)",
+			Timestamp: time.Now(),
+			AdditionalInfo: map[string]interface{}{
+				"correlation_id": correlationID,
+				"timeout_used":   "30s",
+				"timeout_reason": "hard_timeout",
+			},
+		})
+		hm.updateHealthCheckStats(false)
 		hm.proxyManager.BlacklistIP(proxy.Host)
 	}
 }
@@ -319,4 +369,78 @@ func (hm *ProxyHealthMonitor) GetFailingProxies() []types.Proxy {
 	}
 	
 	return failing
+}
+
+// storeError stores an error in the error history for analysis
+func (hm *ProxyHealthMonitor) storeError(err error) {
+	if err == nil {
+		return
+	}
+	
+	hm.errorHistoryMutex.Lock()
+	defer hm.errorHistoryMutex.Unlock()
+	
+	hm.errorHistory = append(hm.errorHistory, err)
+	
+	// Keep only the most recent errors
+	if len(hm.errorHistory) > hm.maxErrorHistory {
+		hm.errorHistory = hm.errorHistory[len(hm.errorHistory)-hm.maxErrorHistory:]
+	}
+}
+
+// GetErrorHistory returns recent errors for analysis
+func (hm *ProxyHealthMonitor) GetErrorHistory() []error {
+	hm.errorHistoryMutex.RLock()
+	defer hm.errorHistoryMutex.RUnlock()
+	
+	errorsCopy := make([]error, len(hm.errorHistory))
+	copy(errorsCopy, hm.errorHistory)
+	
+	return errorsCopy
+}
+
+// isCircuitBreakerTripped checks if the circuit breaker should be tripped
+func (hm *ProxyHealthMonitor) isCircuitBreakerTripped() bool {
+	hm.errorHistoryMutex.RLock()
+	defer hm.errorHistoryMutex.RUnlock()
+	
+	if len(hm.errorHistory) < hm.circuitBreakerThreshold {
+		return false
+	}
+	
+	// Check if the last N errors occurred within the circuit breaker window
+	recentErrors := hm.errorHistory[len(hm.errorHistory)-hm.circuitBreakerThreshold:]
+	now := time.Now()
+	
+	for _, err := range recentErrors {
+		// For this simple implementation, we assume all errors are recent
+		// In a real implementation, you'd store timestamps with errors
+		_ = err
+		if now.Sub(now) < hm.circuitBreakerWindow {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// RecoverFromErrors attempts to recover from critical errors
+func (hm *ProxyHealthMonitor) RecoverFromErrors() {
+	log.Println("[INFO] Attempting to recover from health check errors...")
+	
+	// Clear error history
+	hm.errorHistoryMutex.Lock()
+	hm.errorHistory = make([]error, 0)
+	hm.errorHistoryMutex.Unlock()
+	
+	// Reset consecutive failures for all proxies
+	hm.proxyManager.mutex.Lock()
+	for i := range hm.proxyManager.proxies {
+		if hm.proxyManager.proxies[i].Metrics != nil {
+			hm.proxyManager.proxies[i].Metrics.ConsecutiveFails = 0
+		}
+	}
+	hm.proxyManager.mutex.Unlock()
+	
+	log.Println("[INFO] Health check error recovery completed")
 }

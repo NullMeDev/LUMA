@@ -20,6 +20,7 @@ import (
 	"universal-checker/internal/logger"
 	"universal-checker/internal/proxy"
 	"universal-checker/pkg/types"
+	"universal-checker/pkg/utils"
 )
 
 // Checker represents the main checker engine
@@ -149,7 +150,7 @@ func (c *Checker) LoadCombos(comboPath string) error {
 // LoadProxies loads proxies from file or auto-scrapes them
 func (c *Checker) LoadProxies(proxyPath string) error {
 	if c.Config.AutoScrapeProxies {
-		scraper := proxy.NewScraper(c.Config)
+		scraper := proxy.NewScraper(c.Config, c.logger)
 		proxies, err := scraper.ScrapeAndValidate()
 		if err != nil {
 			return err
@@ -268,13 +269,23 @@ func (c *Checker) worker() {
 func (c *Checker) generateTasks() {
 	for _, combo := range c.Combos {
 		for _, config := range c.Configs {
+			// Check if we should skip this config due to proxy requirements
+			if c.shouldSkipTaskDueToProxy(config) {
+				continue
+			}
+			
 			var proxy *types.Proxy
-			if config.UseProxy {
-				proxy = c.getNextProxy()
+			if config.RequiresProxy {
+				proxy = c.getNextHealthyProxy()
 				if proxy == nil {
-					// Consider bypassing the proxy requirement for testing purposes
-					proxy = nil
+					// This should not happen due to shouldSkipTaskDueToProxy check above
+					c.logger.Warn(fmt.Sprintf("No proxy available for required proxy config %s", config.Name), nil)
+					continue
 				}
+			} else if config.UseProxy {
+				proxy = c.getNextProxy() // Optionally use proxy if available
+			} else {
+				proxy = nil // No proxy needed
 			}
 
 			task := types.WorkerTask{
@@ -292,31 +303,80 @@ func (c *Checker) generateTasks() {
 	}
 }
 
-// checkCombo checks a single combo against a config
+// checkCombo checks a single combo against a config with comprehensive logging
 func (c *Checker) checkCombo(task types.WorkerTask) types.WorkerResult {
 	start := time.Now()
+	correlationID := utils.GenerateCorrelationID()
+	taskID := utils.GenerateTaskID("check")
 	
-	// Create HTTP client
-	client := c.createHTTPClient(task.Proxy)
+	// Log task start
+	c.logger.LogTaskStart(taskID, "combo_check", correlationID)
 	
-	// Build request
-	req, err := c.buildRequest(task.Combo, task.Config)
-	if err != nil {
-		return types.WorkerResult{
-			Result: types.CheckResult{
-				Combo:     task.Combo,
-				Config:    task.Config.Name,
-				Status:    "error",
-				Error:     err.Error(),
-				Timestamp: time.Now(),
-			},
-			Error: err,
+	// Create HTTP client with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+retryCount := 0
+	var resp *http.Response
+	var req *http.Request
+	var err error
+	
+	// Set default retry count if not configured
+	retryLimit := c.Config.RetryCount
+	if retryLimit == 0 {
+		retryLimit = 3 // Default to 3 retries
+	}
+	
+	for retryCount < retryLimit {
+		client := c.createHTTPClient(task.Proxy)
+		
+		// Build request
+		req, err = c.buildRequest(task.Combo, task.Config)
+		if err != nil {
+			// If we can't build the request, don't retry
+			c.logger.Error(fmt.Sprintf("Failed to build request for task %s", taskID), err, nil)
+			break
+		}
+		
+		// Set request context
+		req = req.WithContext(ctx)
+		
+		// Execute request with comprehensive logging
+		c.logger.LogNetworkRequest(req.Method, req.URL.String(), 0, 0, task.Proxy, correlationID, nil)
+		resp, err = client.Do(req)
+		
+		if err == nil {
+			break // Exit retry loop if request is successful
+		}
+		
+		c.logger.LogNetworkRequest(req.Method, req.URL.String(), 0, time.Since(start), task.Proxy, correlationID, err)
+		retryCount++
+		
+		// Only retry if we have more attempts left
+		if retryCount < retryLimit {
+			c.logger.Warn(fmt.Sprintf("Retrying combo check for task %s (retry %d/%d) - %s", taskID, retryCount, retryLimit, err.Error()), nil)
+			
+			// For proxy-required configs, try to get a different proxy
+			if task.Config.RequiresProxy {
+				newProxy := c.getNextHealthyProxy()
+				if newProxy != nil {
+					task.Proxy = newProxy
+				} else {
+					c.logger.Warn(fmt.Sprintf("No healthy proxy available for retry %d", retryCount), nil)
+					// Continue with current proxy as last resort
+				}
+			} else if task.Config.UseProxy {
+				// Optional proxy usage - try another proxy or go without
+				task.Proxy = c.getNextProxy()
+			}
+			
+			// Add a small delay between retries to avoid overwhelming the server
+			time.Sleep(time.Duration(500*retryCount) * time.Millisecond)
 		}
 	}
-
-	// Execute request
-	resp, err := client.Do(req)
+	
 	if err != nil {
+		c.logger.LogTaskComplete(taskID, "combo_check", correlationID, time.Since(start), false, err)
 		return types.WorkerResult{
 			Result: types.CheckResult{
 				Combo:     task.Combo,
@@ -324,16 +384,19 @@ func (c *Checker) checkCombo(task types.WorkerTask) types.WorkerResult {
 				Status:    "error",
 				Error:     err.Error(),
 				Timestamp: time.Now(),
-				Latency:   int(time.Since(start).Milliseconds()),
 			},
 			Error: err,
 		}
 	}
 	defer resp.Body.Close()
+	
+	// Log successful request
+	c.logger.LogNetworkRequest(req.Method, req.URL.String(), resp.StatusCode, time.Since(start), task.Proxy, correlationID, nil)
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.logger.LogTaskComplete(taskID, "combo_check", correlationID, time.Since(start), false, err)
 		return types.WorkerResult{
 			Result: types.CheckResult{
 				Combo:     task.Combo,
@@ -349,6 +412,10 @@ func (c *Checker) checkCombo(task types.WorkerTask) types.WorkerResult {
 
 	// Analyze response
 	status := c.analyzeResponse(string(body), resp.StatusCode, task.Config)
+	duration := time.Since(start)
+	
+	// Log task completion
+	c.logger.LogTaskComplete(taskID, "combo_check", correlationID, duration, status == types.BotStatusSuccess, nil)
 	
 	return types.WorkerResult{
 		Result: types.CheckResult{
@@ -358,16 +425,21 @@ func (c *Checker) checkCombo(task types.WorkerTask) types.WorkerResult {
 			Response:  string(body),
 			Proxy:     task.Proxy,
 			Timestamp: time.Now(),
-			Latency:   int(time.Since(start).Milliseconds()),
+			Latency:   int(duration.Milliseconds()),
 		},
 		Error: nil,
 	}
 }
 
-// createHTTPClient creates an HTTP client with optional proxy
+// createHTTPClient creates an HTTP client with optional proxy and hard timeout
 func (c *Checker) createHTTPClient(proxy *types.Proxy) *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		ResponseHeaderTimeout: 30 * time.Second, // Hard timeout for response headers
+		IdleConnTimeout:       90 * time.Second, // Keep-alive timeout
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		MaxConnsPerHost:       100,
 	}
 
 	if proxy != nil {
@@ -377,9 +449,15 @@ func (c *Checker) createHTTPClient(proxy *types.Proxy) *http.Client {
 		}
 	}
 
+	// Enforce maximum 30s timeout
+	timeout := time.Duration(c.Config.RequestTimeout) * time.Millisecond
+	if timeout > 30*time.Second {
+		timeout = 30 * time.Second
+	}
+
 	return &http.Client{
 		Transport: transport,
-		Timeout:   time.Duration(c.Config.RequestTimeout) * time.Millisecond,
+		Timeout:   timeout,
 	}
 }
 
@@ -557,6 +635,41 @@ func (c *Checker) getNextProxy() *types.Proxy {
 	return proxy
 }
 
+// getNextHealthyProxy returns the next healthy proxy with fallback logic
+func (c *Checker) getNextHealthyProxy() *types.Proxy {
+	// Try to get a healthy proxy multiple times
+	for attempts := 0; attempts < 5; attempts++ {
+		proxy := c.getNextProxy()
+		if proxy != nil && proxy.Working {
+			return proxy
+		}
+	}
+	
+	// If no healthy proxy found, return any proxy (might be marked as unhealthy but could still work)
+	return c.getNextProxy()
+}
+
+// shouldSkipTaskDueToProxy determines if a task should be skipped due to proxy requirements
+func (c *Checker) shouldSkipTaskDueToProxy(config types.Config) bool {
+	if config.RequiresProxy {
+		// Config absolutely requires a proxy
+		if len(c.Proxies) == 0 {
+			// No proxies available at all
+			c.logger.Warn(fmt.Sprintf("Skipping config %s - requires proxy but none available", config.Name), nil)
+			return true
+		}
+		
+		// Check if we have any working proxies
+		workingProxies := c.getWorkingProxies()
+		if len(workingProxies) == 0 {
+			c.logger.Warn(fmt.Sprintf("Skipping config %s - requires proxy but all proxies are dead", config.Name), nil)
+			return true
+		}
+	}
+	
+	return false
+}
+
 // parseCombo parses a combo line into a Combo struct
 func (c *Checker) parseCombo(line string) *types.Combo {
 	// Support different formats: username:password, email:password
@@ -637,4 +750,21 @@ func (c *Checker) getWorkingProxies() []types.Proxy {
 		}
 	}
 	return working
+}
+
+// Public methods for testing
+
+// ShouldSkipTaskDueToProxy exposes the private method for testing
+func (c *Checker) ShouldSkipTaskDueToProxy(config types.Config) bool {
+	return c.shouldSkipTaskDueToProxy(config)
+}
+
+// GetNextProxy exposes the private method for testing
+func (c *Checker) GetNextProxy() *types.Proxy {
+	return c.getNextProxy()
+}
+
+// GetNextHealthyProxy exposes the private method for testing
+func (c *Checker) GetNextHealthyProxy() *types.Proxy {
+	return c.getNextHealthyProxy()
 }

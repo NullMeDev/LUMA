@@ -107,22 +107,23 @@ type Config struct {
 	Cookies     map[string]string      `json:"cookies"`
 	Timeout     int                    `json:"timeout"`
 	FollowRedirects bool              `json:"follow_redirects"`
-	
+
 	// Success/Failure detection
 	SuccessStrings []string `json:"success_strings"`
 	FailureStrings []string `json:"failure_strings"`
 	SuccessStatus  []int    `json:"success_status"`
 	FailureStatus  []int    `json:"failure_status"`
-	
+
 	// Rate limiting
 	CPM         int `json:"cpm"`          // checks per minute
 	Delay       int `json:"delay"`        // delay between requests in ms
 	Retries     int `json:"retries"`      // number of retries on failure
-	
+
 	// Proxy settings
-	UseProxy    bool `json:"use_proxy"`
-	ProxyType   ProxyType `json:"proxy_type"`
-	
+	UseProxy      bool      `json:"use_proxy"`
+	ProxyType     ProxyType `json:"proxy_type"`
+	RequiresProxy bool      `json:"requires_proxy"` // Intelligent proxy detection result
+
 	// Raw config data for different formats
 	RawConfig map[string]interface{} `json:"raw_config"`
 }

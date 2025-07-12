@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"universal-checker/internal/config"
+	"universal-checker/internal/logger"
 	"universal-checker/internal/proxy"
 	"universal-checker/pkg/types"
 )
@@ -133,7 +134,20 @@ func (gc *GlobalChecker) LoadCombos(comboPath string) error {
 func (gc *GlobalChecker) LoadProxies(proxyPath string) error {
 	if gc.Config.AutoScrapeProxies {
 		gc.Log("info", "Auto-scraping proxies from multiple sources...")
-		scraper := proxy.NewScraper(gc.Config)
+		// Initialize logger for proxy scraper
+		loggerConfig := logger.LoggerConfig{
+			Level:      logger.DEBUG,
+			JSONFormat: false,
+			BufferSize: 100,
+			Component:  "proxy-scraper",
+		}
+		proxyLogger, err := logger.NewStructuredLogger(loggerConfig)
+		if err != nil {
+			gc.Log("warning", fmt.Sprintf("Failed to create proxy logger: %v", err))
+			proxyLogger = nil
+		}
+		
+		scraper := proxy.NewScraper(gc.Config, proxyLogger)
 		proxies, err := scraper.ScrapeAndValidate()
 		if err != nil {
 			gc.Log("error", fmt.Sprintf("Failed to scrape proxies: %v", err))

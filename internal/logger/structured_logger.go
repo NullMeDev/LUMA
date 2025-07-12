@@ -43,13 +43,21 @@ func (l LogLevel) String() string {
 
 // LogEntry represents a structured log entry
 type LogEntry struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Level     string                 `json:"level"`
-	Message   string                 `json:"message"`
-	Component string                 `json:"component,omitempty"`
-	Session   string                 `json:"session,omitempty"`
-	Fields    map[string]interface{} `json:"fields,omitempty"`
-	Error     string                 `json:"error,omitempty"`
+	Timestamp     time.Time              `json:"timestamp"`
+	Level         string                 `json:"level"`
+	Message       string                 `json:"message"`
+	Component     string                 `json:"component,omitempty"`
+	Session       string                 `json:"session,omitempty"`
+	CorrelationID string                 `json:"correlation_id,omitempty"`
+	TaskID        string                 `json:"task_id,omitempty"`
+	ProxyHost     string                 `json:"proxy_host,omitempty"`
+	ProxyPort     int                    `json:"proxy_port,omitempty"`
+	Latency       int                    `json:"latency,omitempty"`
+	StatusCode    int                    `json:"status_code,omitempty"`
+	RetryAttempt  int                    `json:"retry_attempt,omitempty"`
+	Timeout       time.Duration          `json:"timeout,omitempty"`
+	Fields        map[string]interface{} `json:"fields,omitempty"`
+	Error         string                 `json:"error,omitempty"`
 }
 
 // StructuredLogger provides structured logging capabilities
@@ -100,7 +108,7 @@ func NewStructuredLogger(config LoggerConfig) (*StructuredLogger, error) {
 			return nil, fmt.Errorf("failed to open log file: %v", err)
 		}
 		logger.fileOutput = file
-		logger.output = file
+		// Don't set logger.output = file, we'll handle dual output in writeEntry
 	}
 
 	return logger, nil
@@ -178,7 +186,7 @@ func (sl *StructuredLogger) log(level LogLevel, message string, errorStr string,
 	}
 }
 
-// writeEntry writes a log entry to the output
+// writeEntry writes a log entry to both stdout and file (if configured)
 func (sl *StructuredLogger) writeEntry(entry LogEntry) {
 	sl.mutex.Lock()
 	defer sl.mutex.Unlock()
@@ -193,12 +201,35 @@ func (sl *StructuredLogger) writeEntry(entry LogEntry) {
 			output = string(jsonData) + "\n"
 		}
 	} else {
-		// Human-readable format
+		// Human-readable format with enhanced fields
 		timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
+		var contextInfo string
+		if entry.CorrelationID != "" {
+			contextInfo += fmt.Sprintf(" [CID:%s]", entry.CorrelationID)
+		}
+		if entry.TaskID != "" {
+			contextInfo += fmt.Sprintf(" [TID:%s]", entry.TaskID)
+		}
+		if entry.ProxyHost != "" {
+			contextInfo += fmt.Sprintf(" [Proxy:%s:%d]", entry.ProxyHost, entry.ProxyPort)
+		}
+		if entry.Latency > 0 {
+			contextInfo += fmt.Sprintf(" [%dms]", entry.Latency)
+		}
+		if entry.StatusCode > 0 {
+			contextInfo += fmt.Sprintf(" [HTTP:%d]", entry.StatusCode)
+		}
+		if entry.RetryAttempt > 0 {
+			contextInfo += fmt.Sprintf(" [Retry:%d]", entry.RetryAttempt)
+		}
+		if entry.Timeout > 0 {
+			contextInfo += fmt.Sprintf(" [Timeout:%s]", entry.Timeout)
+		}
+		
 		if entry.Error != "" {
-			output = fmt.Sprintf("[%s] %s [%s] %s - Error: %s\n", timestamp, entry.Level, entry.Component, entry.Message, entry.Error)
+			output = fmt.Sprintf("[%s] %s [%s]%s %s - Error: %s\n", timestamp, entry.Level, entry.Component, contextInfo, entry.Message, entry.Error)
 		} else {
-			output = fmt.Sprintf("[%s] %s [%s] %s\n", timestamp, entry.Level, entry.Component, entry.Message)
+			output = fmt.Sprintf("[%s] %s [%s]%s %s\n", timestamp, entry.Level, entry.Component, contextInfo, entry.Message)
 		}
 		
 		// Add fields if present
@@ -207,7 +238,14 @@ func (sl *StructuredLogger) writeEntry(entry LogEntry) {
 		}
 	}
 
+	// Write to stdout
 	sl.output.Write([]byte(output))
+	
+	// Write to file if configured
+	if sl.fileOutput != nil {
+		sl.fileOutput.Write([]byte(output))
+		sl.fileOutput.Sync() // Ensure data is written to disk
+	}
 }
 
 // addToBuffer adds an entry to the internal buffer
@@ -319,4 +357,277 @@ func (sl *StructuredLogger) ExportLogs(filename string, limit int) error {
 		"total_logs":  len(logs),
 		"logs":        logs,
 	})
+}
+
+// LogWithCorrelation logs with correlation ID for request tracing
+func (sl *StructuredLogger) LogWithCorrelation(level LogLevel, message string, correlationID string, fields map[string]interface{}) {
+	if level < sl.level {
+		return
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         level.String(),
+		Message:       message,
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		Fields:        fields,
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogNetworkRequest logs network request details with timeout tracking
+func (sl *StructuredLogger) LogNetworkRequest(method, url string, statusCode int, latency time.Duration, proxy *types.Proxy, correlationID string, err error) {
+	fields := map[string]interface{}{
+		"method":         method,
+		"url":            url,
+		"status_code":    statusCode,
+		"latency_ms":     latency.Milliseconds(),
+		"correlation_id": correlationID,
+	}
+
+	if proxy != nil {
+		fields["proxy_host"] = proxy.Host
+		fields["proxy_port"] = proxy.Port
+		fields["proxy_type"] = string(proxy.Type)
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         "INFO",
+		Message:       fmt.Sprintf("Network request: %s %s", method, url),
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		ProxyHost:     "",
+		ProxyPort:     0,
+		Latency:       int(latency.Milliseconds()),
+		StatusCode:    statusCode,
+		Fields:        fields,
+	}
+
+	if proxy != nil {
+		entry.ProxyHost = proxy.Host
+		entry.ProxyPort = proxy.Port
+	}
+
+	if err != nil {
+		entry.Level = "ERROR"
+		entry.Error = err.Error()
+		entry.Message = fmt.Sprintf("Network request failed: %s %s", method, url)
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogProxySelection logs proxy selection decisions
+func (sl *StructuredLogger) LogProxySelection(strategy string, proxy *types.Proxy, alternatives int, correlationID string) {
+	fields := map[string]interface{}{
+		"strategy":       strategy,
+		"alternatives":   alternatives,
+		"correlation_id": correlationID,
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         "DEBUG",
+		Message:       fmt.Sprintf("Proxy selected using %s strategy", strategy),
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		Fields:        fields,
+	}
+
+	if proxy != nil {
+		entry.ProxyHost = proxy.Host
+		entry.ProxyPort = proxy.Port
+		fields["proxy_host"] = proxy.Host
+		fields["proxy_port"] = proxy.Port
+		fields["proxy_type"] = string(proxy.Type)
+		fields["proxy_score"] = proxy.Score
+		fields["proxy_quality"] = string(proxy.Quality)
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogHealthCheck logs health check results
+func (sl *StructuredLogger) LogHealthCheck(proxy *types.Proxy, success bool, latency time.Duration, err error) {
+	fields := map[string]interface{}{
+		"proxy_host":    proxy.Host,
+		"proxy_port":    proxy.Port,
+		"proxy_type":    string(proxy.Type),
+		"success":       success,
+		"latency_ms":    latency.Milliseconds(),
+		"proxy_score":   proxy.Score,
+		"proxy_quality": string(proxy.Quality),
+	}
+
+	entry := LogEntry{
+		Timestamp:  time.Now(),
+		Level:      "INFO",
+		Message:    fmt.Sprintf("Health check for proxy %s:%d", proxy.Host, proxy.Port),
+		Component:  sl.component,
+		Session:    sl.sessionID,
+		ProxyHost:  proxy.Host,
+		ProxyPort:  proxy.Port,
+		Latency:    int(latency.Milliseconds()),
+		Fields:     fields,
+	}
+
+	if !success {
+		entry.Level = "WARN"
+		entry.Message = fmt.Sprintf("Health check failed for proxy %s:%d", proxy.Host, proxy.Port)
+		if err != nil {
+			entry.Error = err.Error()
+		}
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogTimeout logs timeout events with details
+func (sl *StructuredLogger) LogTimeout(operation string, timeout time.Duration, correlationID string, proxy *types.Proxy) {
+	fields := map[string]interface{}{
+		"operation":      operation,
+		"timeout_ms":     timeout.Milliseconds(),
+		"correlation_id": correlationID,
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         "WARN",
+		Message:       fmt.Sprintf("Operation timeout: %s (%.2fs)", operation, timeout.Seconds()),
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		Timeout:       timeout,
+		Fields:        fields,
+	}
+
+	if proxy != nil {
+		entry.ProxyHost = proxy.Host
+		entry.ProxyPort = proxy.Port
+		fields["proxy_host"] = proxy.Host
+		fields["proxy_port"] = proxy.Port
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogRetryAttempt logs retry attempts with context
+func (sl *StructuredLogger) LogRetryAttempt(operation string, attempt int, maxAttempts int, correlationID string, lastError error) {
+	fields := map[string]interface{}{
+		"operation":      operation,
+		"attempt":        attempt,
+		"max_attempts":   maxAttempts,
+		"correlation_id": correlationID,
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         "INFO",
+		Message:       fmt.Sprintf("Retry attempt %d/%d for %s", attempt, maxAttempts, operation),
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		RetryAttempt:  attempt,
+		Fields:        fields,
+	}
+
+	if lastError != nil {
+		entry.Error = lastError.Error()
+		fields["last_error"] = lastError.Error()
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogTaskStart logs the start of a task with correlation ID
+func (sl *StructuredLogger) LogTaskStart(taskID string, taskType string, correlationID string) {
+	fields := map[string]interface{}{
+		"task_id":        taskID,
+		"task_type":      taskType,
+		"correlation_id": correlationID,
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         "INFO",
+		Message:       fmt.Sprintf("Task started: %s", taskType),
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		TaskID:        taskID,
+		Fields:        fields,
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
+}
+
+// LogTaskComplete logs task completion with performance metrics
+func (sl *StructuredLogger) LogTaskComplete(taskID string, taskType string, correlationID string, duration time.Duration, success bool, err error) {
+	fields := map[string]interface{}{
+		"task_id":        taskID,
+		"task_type":      taskType,
+		"correlation_id": correlationID,
+		"duration_ms":    duration.Milliseconds(),
+		"success":        success,
+	}
+
+	entry := LogEntry{
+		Timestamp:     time.Now(),
+		Level:         "INFO",
+		Message:       fmt.Sprintf("Task completed: %s (%.2fs)", taskType, duration.Seconds()),
+		Component:     sl.component,
+		Session:       sl.sessionID,
+		CorrelationID: correlationID,
+		TaskID:        taskID,
+		Latency:       int(duration.Milliseconds()),
+		Fields:        fields,
+	}
+
+	if !success {
+		entry.Level = "ERROR"
+		entry.Message = fmt.Sprintf("Task failed: %s (%.2fs)", taskType, duration.Seconds())
+		if err != nil {
+			entry.Error = err.Error()
+		}
+	}
+
+	sl.writeEntry(entry)
+	
+	if sl.bufferSize > 0 {
+		sl.addToBuffer(entry)
+	}
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -15,6 +16,19 @@ import (
 
 // Parser handles parsing of different configuration formats
 type Parser struct{}
+
+// Helper function to check if any string in slice satisfies condition
+func anyStringContains(slice []string, searchTerms ...string) bool {
+	for _, s := range slice {
+		lowerS := strings.ToLower(s)
+		for _, term := range searchTerms {
+			if strings.Contains(lowerS, term) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // NewParser creates a new configuration parser
 func NewParser() *Parser {
@@ -39,14 +53,23 @@ func (p *Parser) ParseConfig(filePath string) (*types.Config, error) {
 
 // parseOPK parses OpenBullet .opk configuration files
 func (p *Parser) parseOPK(filePath string) (*types.Config, error) {
+	// OPK files are actually ZIP archives, need to extract first
+	return p.parseOPKArchive(filePath)
+}
+
+// parseOPKArchive extracts and parses OPK archive files
+func (p *Parser) parseOPKArchive(filePath string) (*types.Config, error) {
+	// For now, try to read as direct JSON (some OPK might be uncompressed)
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
 
+	// Try to parse as JSON first
 	var opkConfig map[string]interface{}
 	if err := json.Unmarshal(data, &opkConfig); err != nil {
-		return nil, err
+		// If JSON parsing fails, try to handle as archive
+		return p.parseOPKAsArchive(filePath)
 	}
 
 	config := &types.Config{
@@ -107,6 +130,104 @@ func (p *Parser) parseOPK(filePath string) (*types.Config, error) {
 			}
 		}
 	}
+
+// Determine proxy requirement
+config.RequiresProxy = p.DetermineProxyRequirement(filePath, config)
+
+return config, nil
+}
+
+// parseOPKAsArchive handles OPK files as ZIP archives
+func (p *Parser) parseOPKAsArchive(filePath string) (*types.Config, error) {
+	// Open the ZIP file
+	r, err := zip.OpenReader(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open OPK archive: %v", err)
+	}
+	defer r.Close()
+
+	// Look for config files inside the archive
+	for _, f := range r.File {
+		if strings.HasSuffix(f.Name, ".loli") || strings.HasSuffix(f.Name, "script.loli") {
+			// Extract and parse LoliScript
+			return p.parseOPKLoliFromArchive(f, filePath)
+		} else if strings.HasSuffix(f.Name, ".json") || f.Name == "metadata.json" {
+			// Extract and parse JSON metadata
+			return p.parseOPKJSONFromArchive(f, filePath)
+		}
+	}
+
+	return nil, fmt.Errorf("no supported config format found in OPK archive")
+}
+
+// parseOPKLoliFromArchive extracts and parses LoliScript from OPK archive
+func (p *Parser) parseOPKLoliFromArchive(f *zip.File, filePath string) (*types.Config, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	data, err := ioutil.ReadAll(rc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse as LoliScript but with OPK type
+	config, err := p.parseLoliScript(filePath, data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Override type to OPK
+	config.Type = types.ConfigTypeOPK
+	return config, nil
+}
+
+// parseOPKJSONFromArchive extracts and parses JSON metadata from OPK archive
+func (p *Parser) parseOPKJSONFromArchive(f *zip.File, filePath string) (*types.Config, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	data, err := ioutil.ReadAll(rc)
+	if err != nil {
+		return nil, err
+	}
+
+	var opkConfig map[string]interface{}
+	if err := json.Unmarshal(data, &opkConfig); err != nil {
+		return nil, err
+	}
+
+	config := &types.Config{
+		Name:            p.getStringValue(opkConfig, "name", filepath.Base(filePath)),
+		Type:            types.ConfigTypeOPK,
+		Method:          "GET", // Default
+		Headers:         make(map[string]string),
+		Data:            make(map[string]interface{}),
+		Cookies:         make(map[string]string),
+		Timeout:         p.getIntValue(opkConfig, "timeout", 30),
+		FollowRedirects: p.getBoolValue(opkConfig, "followRedirects", true),
+		CPM:             p.getIntValue(opkConfig, "cpm", 300),
+		Delay:           p.getIntValue(opkConfig, "delay", 0),
+		Retries:         p.getIntValue(opkConfig, "retries", 3),
+		UseProxy:        p.getBoolValue(opkConfig, "useProxy", true),
+		RawConfig:       opkConfig,
+	}
+
+	// Basic parsing from JSON metadata
+	if url, ok := opkConfig["url"].(string); ok {
+		config.URL = url
+	}
+	if method, ok := opkConfig["method"].(string); ok {
+		config.Method = method
+	}
+
+	// Determine proxy requirement
+	config.RequiresProxy = p.DetermineProxyRequirement(filePath, config)
 
 	return config, nil
 }
@@ -257,7 +378,10 @@ func (p *Parser) parseSVB(filePath string) (*types.Config, error) {
 		}
 	}
 
-	return config, nil
+// Determine proxy requirement
+config.RequiresProxy = p.DetermineProxyRequirement(filePath, config)
+
+return config, nil
 }
 // parseLoliScript parses .loli script string
 func (p *Parser) parseLoliScript(filePath string, data []byte) (*types.Config, error) {
@@ -301,7 +425,10 @@ func (p *Parser) parseLoliScript(filePath string, data []byte) (*types.Config, e
 		}
 	}
 
-	return config, nil
+// Determine proxy requirement
+config.RequiresProxy = p.DetermineProxyRequirement(filePath, config)
+
+return config, nil
 }
 
 // parseLoli parses .loli configuration files
@@ -459,6 +586,83 @@ func (p *Parser) extractNumber(line string) int {
 		}
 	}
 	return 0
+}
+
+// DetermineProxyRequirement intelligently detects if a config needs proxies
+func (p *Parser) DetermineProxyRequirement(filePath string, config *types.Config) bool {
+	lowerPath := strings.ToLower(filePath)
+	
+	// File path analysis - obvious VPN/Proxy services
+	if strings.Contains(lowerPath, "vpn") ||
+		strings.Contains(lowerPath, "proxy") {
+		return true
+	}
+	
+	// Check category/folder for geo-locked or region-specific services
+	geoLockedServices := []string{"streaming", "netflix", "hulu", "disney", "amazon", "hbo", "bbc", "itvx"}
+	for _, service := range geoLockedServices {
+		if strings.Contains(lowerPath, service) {
+			return true
+		}
+	}
+	
+	// Check for explicit proxy requirements in SVB configs
+	if needsProxies, ok := config.RawConfig["NeedsProxies"].(bool); ok && needsProxies {
+		return true
+	}
+	
+	// Check failure strings for ban/rate limiting indicators
+	banIndicators := []string{
+		"ban", "banned", "blocked", "forbidden", "access denied",
+		"rate limit", "too many requests", "429", "403",
+		"captcha", "security check", "suspicious activity",
+		"region", "country", "location", "geo", "not available",
+	}
+	
+	if anyStringContains(config.FailureStrings, banIndicators...) {
+		return true
+	}
+	
+	// Check URL for specific domains that commonly require proxies
+	if config.URL != "" {
+		lowerURL := strings.ToLower(config.URL)
+		proxyRequiredDomains := []string{
+			"netflix", "hulu", "disney", "amazon", "hbo", "bbc",
+			"spotify", "pandora", "crunchyroll", "funimation",
+			"discord", "twitter", "facebook", "instagram",
+			"onlyfans", "patreon", "twitch",
+		}
+		
+		for _, domain := range proxyRequiredDomains {
+			if strings.Contains(lowerURL, domain) {
+				return true
+			}
+		}
+	}
+	
+	// Check for captcha services which often indicate anti-bot measures
+	captchaServices := []string{"recaptcha", "hcaptcha", "turnstile", "cloudflare"}
+	if anyStringContains(config.SuccessStrings, captchaServices...) ||
+		anyStringContains(config.FailureStrings, captchaServices...) {
+		return true
+	}
+	
+	// Check headers for user agent rotation or sophisticated evasion
+	for k, v := range config.Headers {
+		headerKey := strings.ToLower(k)
+		headerValue := strings.ToLower(v)
+		
+		// Sophisticated headers that indicate evasion techniques
+		if headerKey == "x-forwarded-for" || headerKey == "x-real-ip" ||
+			headerKey == "cf-connecting-ip" ||
+			strings.Contains(headerValue, "random") ||
+			strings.Contains(headerValue, "rotate") {
+			return true
+		}
+	}
+	
+	// Default to false for configs that don't show clear proxy requirement signs
+	return false
 }
 
 // DetectConfigType detects the configuration type based on file extension
