@@ -39,9 +39,9 @@ func main() {
 	// Load test configurations
 	fmt.Println("📁 Loading test configurations...")
 	configPaths := []string{
-		"configs/test_openbullet.opk",
-		"configs/test_silverbullet.svb", 
-		"configs/test_loli.loli",
+		"test_data/Configs/Streaming/Crunchyroll CYBER v3.svb", 
+		"test_data/Configs/VPN/TunnelBear VPN.loli",
+		"test_data/Configs/VPN/Strong VPN.loli",
 	}
 
 	if err := c.LoadConfigs(configPaths); err != nil {
@@ -59,24 +59,32 @@ func main() {
 
 	// Load test combos
 	fmt.Println("📋 Loading test combos...")
-	if err := c.LoadCombos("data/combos/test_combos.txt"); err != nil {
+	if err := c.LoadCombos("test_data/Combos/40 valids.txt"); err != nil {
 		log.Fatalf("❌ Failed to load combos: %v", err)
 	}
 	fmt.Printf("✅ Loaded %d combos\n", len(c.Combos))
 	for i, combo := range c.Combos {
 		fmt.Printf("   %d. %s\n", i+1, combo.Line)
+		if i >= 9 { // Only show first 10 combos
+			fmt.Println("   ... and more")
+			break
+		}
 	}
 	fmt.Println()
 
 	// Load test proxies
 	fmt.Println("🌐 Loading test proxies...")
-	if err := c.LoadProxies("data/proxies/test_proxies.txt"); err != nil {
+	if err := c.LoadProxies("test_data/proxies/SOCKS4_proxies (13).txt"); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to load proxies: %v\n", err)
 		fmt.Println("📡 Proceeding without proxies for this test...")
 	} else {
 		fmt.Printf("✅ Loaded %d proxies\n", len(c.Proxies))
 		for i, proxy := range c.Proxies {
 			fmt.Printf("   %d. %s:%d (%s)\n", i+1, proxy.Host, proxy.Port, proxy.Type)
+			if i >= 9 { // Only show first 10 proxies
+				fmt.Println("   ... and more")
+				break
+			}
 		}
 	}
 	fmt.Println()
